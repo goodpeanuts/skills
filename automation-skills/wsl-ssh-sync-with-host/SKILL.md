@@ -1,6 +1,6 @@
 ---
 name: wsl-ssh-sync-with-host
-description: "Configure WSL to share SSH keys and configuration with Windows, solving permission issues (chmod/chown) on NTFS mounts. Use when users want to reuse their Windows .ssh directory in WSL or encounter \"UNPROTECTED PRIVATE KEY FILE\" errors."
+description: Configure WSL to share SSH keys and configuration with Windows, solving permission issues (chmod/chown) on NTFS mounts. Use when users want to reuse their Windows .ssh directory in WSL or encounter UNPROTECTED PRIVATE KEY FILE errors.
 ---
 
 # WSL SSH Sync

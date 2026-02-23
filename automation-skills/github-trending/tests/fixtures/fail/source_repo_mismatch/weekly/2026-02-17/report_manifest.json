@@ -1,0 +1,11 @@
+{
+  "date": "2026-02-17",
+  "period": "weekly",
+  "source_item_count": 3,
+  "reported_item_count": 3,
+  "repos": [
+    {"rank": 1, "repo": "owner1/repo1", "url": "https://github.com/owner1/repo1"},
+    {"rank": 2, "repo": "owner2/repo2", "url": "https://github.com/owner2/repo2"},
+    {"rank": 3, "repo": "owner3/repoX", "url": "https://github.com/owner3/repoX"}
+  ]
+}

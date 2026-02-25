@@ -1,26 +1,16 @@
 ---
 name: github-trending
-description: Fetch, deeply analyze, validate, archive, and email strict GitHub Trending reports (daily/weekly/monthly) with full-list coverage and source-to-report consistency checks.
+description: Fetch, analyze, validate, and email strict GitHub Trending reports (daily/weekly/monthly) with full-list coverage and source-to-report consistency checks.
 ---
 
 # GitHub Trending Report Skill
 
-## Prerequisites (Conditional)
-
-Email-delivery prerequisites are only required when executing Step 4 (send email).  
-Do not load these details for report generation-only runs.  
-Load `references/gog_email_delivery.md` only when sending is needed.
-
 ## Goal
 
-Generate a strictly formatted GitHub Trending report that is:
+Generate a strict GitHub Trending report for user that is:
 1. Complete (all trending items, original order)
-2. Insightful (repo-level technical analysis based on README + structure + key code when needed)
-3. Verifiable (must pass `scripts/check_existing_report.py` and `scripts/validate_report.py`)
-
-## Audience & Tone
-
-Audience is Roy (focus: Finance, AI Agents, Security). Analysis must be technical, evidence-based, and actionable.
+2. Insightful (evidence-based repo analysis)
+3. Verifiable (must pass validation before sending)
 
 ## Required References
 
@@ -28,189 +18,127 @@ Always use these files as hard references:
 1. Markdown template: `references/example_report.md`
 2. HTML template: `references/example_report.html`
 3. Output contract: `references/output_contract.md`
-4. Email delivery reference (Step 4 only): `references/gog_email_delivery.md`
+
+Use this file only in Step 3 when sending fails:
+1. Email send fallback reference: `references/gog_email_delivery.md`
+
+**Example interpretation rule (critical)**: Examples in `references/example_report.md` and `references/example_report.html` are format/structure references only, not depth benchmarks. See `references/output_contract.md` Section 10 for details.
 
 ## Input Contract
 
-### 1. Resolve period
+Summary:
+- Map user intent to `PERIOD` (daily/weekly/monthly)
+- Resolve `SKILL_DIR` from skill location
+- Use fixed `OUTPUT_ROOT="$HOME/.github_trending"` (no override)
+- Build `REPORT_DIR`, file paths, and trending URL from period and date
 
-Map user intent to `PERIOD`:
-1. `daily`: user says daily/day/today
-2. `monthly`: user says monthly/month
-3. default: `weekly`
-
-### 2. Resolve paths
-
-Use workspace-relative paths only.
-
+Required variables:
 ```bash
+SKILL_DIR="<absolute-path-to-skill-directory>"
+SCRIPTS_DIR="$SKILL_DIR/scripts"
 DATE=$(date +%Y-%m-%d)
-REPORT_DIR="github_trending/$PERIOD/$DATE"
+OUTPUT_ROOT="$HOME/.github_trending"
+REPORT_DIR="$OUTPUT_ROOT/$PERIOD/$DATE"
 HTML_FILE="$REPORT_DIR/report_$DATE.html"
 MD_FILE="$REPORT_DIR/report_$DATE.md"
 SOURCE_FILE="$REPORT_DIR/original_trending.html"
 MANIFEST_FILE="$REPORT_DIR/report_manifest.json"
 ```
 
-Trending URL by period:
-1. `daily`: `https://github.com/trending?since=daily`
-2. `weekly`: `https://github.com/trending?since=weekly`
-3. `monthly`: `https://github.com/trending?since=monthly`
+Path rules (mandatory):
+1. `SKILL_DIR` must be the directory that contains `SKILL.md`.
+2. Output root must be `~/.github_trending`.
+3. Do not allow output root overrides via env vars or CLI flags.
+4. Never call scripts with hardcoded relative paths like `python3 scripts/...`.
+
+## Analysis Requirements (Mandatory)
+
+Analysis must be evidence-driven AND personalized.
+
+### Personalization (Critical):
+All analysis fields must be actionable and context-specific. See `references/output_contract.md` Section 11 for:
+- Required elements for each field (效果, 项目分析, 建议)
+- Actionable recommendation requirements (specific action + scope + prerequisite + expected outcome)
+- Templates and good/bad examples
+- Forbidden generic phrases
+
+### Evidence Collection:
+Collect baseline evidence for every repo. Deep dive when README/structure is insufficient or claims are non-trivial. See `references/output_contract.md` Section 13 for detailed requirements.
+
+### Parallel Analysis (Mandatory):
+Spawn parallel sub-agents for each repo in Step 2. See `references/output_contract.md` Section 14 for:
+- Concurrency pattern (launch all in single message)
+- Sub-agent task requirements (must reference Section 11 and Section 13)
+- Aggregation and error handling
 
 ## Workflow (Single Route, Mandatory)
 
-Normal runs MUST use this split workflow only. Do not use removed one-click/orchestrator routes.
+Use this single route only:
+1. Fetch source (with existing-report gate)
+2. Analyze + generate report
+3. Send email (only after validation pass)
 
-### Step 1: Check Existing Report First
+### Step 1: Fetch Source (With Existing-Report Gate)
 
-Run:
+Run existing-report gate first:
 
 ```bash
-python3 scripts/check_existing_report.py \
-  --base-dir github_trending \
+python3 "$SCRIPTS_DIR/check_existing_report.py" \
   --period "$PERIOD" \
   --date "$DATE"
 ```
 
 State transitions by exit code:
-1. `0` (`existing_valid`): Skip generation and go to Step 4 (send email).
-2. `10` (`missing`): Continue to Step 2 (fetch source + generate).
-3. `20` (`existing_invalid`): Continue to Step 2 (regenerate).
+1. `0` (`existing_valid`): reuse existing artifacts and jump to Step 3.
+2. `10` (`missing`): continue with source fetch and Step 2.
+3. `20` (`existing_invalid`): continue with source fetch and Step 2.
 
-### Step 2: Fetch Source + Generate Report
-
-Mandatory before validation:
+If generation is needed:
 1. Ensure `REPORT_DIR` exists.
-2. Fetch GitHub Trending page HTML for selected period.
+2. Fetch selected trending page HTML.
 3. Save source to `SOURCE_FILE`.
 4. `SOURCE_FILE` must exist and be non-empty.
-5. Generate:
-   1. `report_$DATE.md`
-   2. `report_$DATE.html`
-   3. `report_manifest.json`
 
-### Step 3: Validate and Retry If Needed
+### Step 2: Analyze + Generate + Validate
 
-Run:
-
-```bash
-python3 scripts/validate_report.py \
-  --report-dir "$REPORT_DIR" \
-  --period "$PERIOD" \
-  --date "$DATE"
-```
-
-Retry policy:
-1. If validation passes: continue to Step 4.
-2. If validation fails: regenerate reports and validate again.
-3. Maximum retries: 2.
-4. If still failing: stop and do not send email.
-
-### Step 4: Send Email (Only After Validation Pass)
-
-Email policy:
-1. Use `gog gmail send`.
-2. Recipient should default to your own mailbox from `TRENDING_REPORT_RECIPIENT`.
-3. `--recipient` override is allowed.
-4. Never hardcode personal email addresses in skill/scripts.
-5. Before sending, follow `references/gog_email_delivery.md` for gog installation/auth checks and non-interactive keyring handling.
-
-Example:
-
-```bash
-gog gmail send \
-  --to "$RECIPIENT_EMAIL" \
-  --subject "GitHub $(echo $PERIOD | sed 's/./\U&/') Trending Report ($DATE)" \
-  --body-html "$(cat \"$HTML_FILE\")"
-```
-
-## Analysis Depth Requirement (Mandatory)
-
-For each trending repo, analysis must be evidence-driven and not shallow.
-
-### Baseline (every repo, required)
-1. Read repository README.
-2. Inspect repository structure (root layout + key directories/files).
-3. Extract architecture/usage/target-user signals from README + structure.
-
-### Deep Dive (every repo, conditionally required)
-
-If README/structure is insufficient or claims are non-trivial, inspect key code files.
-
-Trigger signals include:
-1. Claimed performance/security/finance strategy advantage.
-2. Complex agent orchestration or runtime/sandbox design.
-3. Ambiguous implementation details that affect recommendation quality.
-
-Deep-dive minimum:
-1. Inspect at least 2 key code/module evidence points when triggered.
-2. Reflect these findings in `项目分析` as "how it works" + "why it matters" + risks/tradeoffs.
-
-### Report Quality Standard
-
-For each repo output:
-1. Do not stop at feature summaries.
-2. Provide architecture-level judgment and deployment/operational implications.
-3. Provide actionable advice aligned to Finance/AI/Security.
-
-## Generation Requirements (Mandatory)
-
-Generate all files in `REPORT_DIR`:
+Generate all required outputs in `REPORT_DIR` following `references/output_contract.md` Sections 4-6:
 1. `original_trending.html`
 2. `report_$DATE.md`
 3. `report_$DATE.html`
 4. `report_manifest.json`
 
-`report_manifest.json` must include:
-1. `date` (`YYYY-MM-DD`)
-2. `period` (`daily|weekly|monthly`)
-3. `source_item_count` (integer)
-4. `reported_item_count` (integer)
-5. `repos` (ordered list with `rank`, `repo`, `url`)
+Run validation:
 
-For each repo, include:
-1. Rank (`#1`, `#2`, ...)
-2. Name (`owner/repo`) with valid GitHub hyperlink
-3. Tags (at least one)
-4. `是什么`
-5. `作用`
-6. `效果`
-7. `项目分析`
-8. `建议`
+```bash
+python3 "$SCRIPTS_DIR/validate_report.py" \
+  --report-dir "$REPORT_DIR" \
+  --period "$PERIOD" \
+  --date "$DATE"
+```
 
-## HTML Contract (Strict)
+If validation fails, follow `references/output_contract.md` Section 15.
 
-Generated HTML must follow `references/example_report.html` and include:
-1. `.overview-section`
-2. `.repo-card` (one per repo)
-3. `.tag` badges
-4. `.suggestion-box`
-5. Section title `🚀 热门项目详细分析`
+### Step 3: Send Email (After Validation Pass Only)
 
-Prohibited:
-1. Plain unordered list fallback for repo details
-2. Markdown backticks in HTML body text
-3. Missing required fields in repo cards
+Assume gog is already configured externally with `GOG_ACCOUNT` and `GOG_KEYRING_PASSWORD` set in persistent environment.
 
-## Markdown Contract (Strict)
+Send email directly:
 
-Markdown must follow `references/example_report.md` and include:
-1. Top title: `# GitHub 本<周期>技术趋势报告($DATE)`
-2. `## 📊 概述与趋势分析`
-3. `## 🚀 热门项目详细分析`
-4. One section per repo:
-   `### N. [owner/repo](https://github.com/owner/repo)`
-5. Required field order:
-   1. `是什么`
-   2. `作用`
-   3. `效果`
-   4. `项目分析`
-   5. `建议`
+```bash
+gog gmail send \
+  --to "$GOG_ACCOUNT" \
+  --subject "GitHub $(echo $PERIOD | sed 's/./\\U&/') Trending Report ($DATE)" \
+  --body-html "$(cat \"$HTML_FILE\")"
+```
 
-## Output Directory Contract
+If send fails, follow `references/gog_email_delivery.md` minimal fallback checks, then retry once.
+
+## Output Structure
+
+Output directory structure:
 
 ```text
-github_trending/
+~/.github_trending/
 └── <period>/
     └── YYYY-MM-DD/
         ├── original_trending.html
@@ -218,15 +146,3 @@ github_trending/
         ├── report_YYYY-MM-DD.html
         └── report_manifest.json
 ```
-
-## Failure Handling
-
-Stop and return errors if any of the following occurs:
-1. Missing required output files
-2. Source item count mismatch with Markdown/HTML/manifest
-3. Non-sequential ranking
-4. Missing required analysis fields
-5. Invalid GitHub repository links
-6. Output path/date/period mismatch
-
-Never send email when validation fails.

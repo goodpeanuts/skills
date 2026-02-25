@@ -1,73 +1,72 @@
 # gog Email Delivery Reference
 
-Use this reference only when Step 4 (send email) is required.
+Use this reference only for Step 3 (send email).
 
-## 1. gog CLI Installation
+## Scope
 
-This skill uses `gog` CLI for sending email reports. Ensure:
+This file is a minimal fallback checklist.
+Assume gog account/auth configuration is already completed externally.
+All send parameters must be read from environment variables.
+
+## Environment Variable Setup (Required)
+
+Configure env vars in a persistent environment location before running the skill:
+1. System-level environment settings (if your runtime loads them)
+2. `~/.bashrc`
+3. `~/.zshrc`
+
+Required vars:
+1. `GOG_ACCOUNT`
+2. `GOG_KEYRING_PASSWORD`
+3. `TRENDING_REPORT_RECIPIENT` (default recipient)
+
+Example (direct env-var usage):
 
 ```bash
-# Check gog is installed
-which gog && gog --version
-
-# Should output something like: v0.11.0
+export GOG_ACCOUNT=zen9ha0@gmail.com
+export GOG_KEYRING_PASSWORD=$(cat ~/.config/gogcli/.keyring_password 2>/dev/null)
+export TRENDING_REPORT_RECIPIENT=zen9ha0@gmail.com
 ```
 
-If not installed, warn and report, abort sending, but allow report generation to proceed for archival purposes.
-
-## 2. gog Authentication Verification
-
-Before sending, verify gog authentication is configured:
+After editing rc file, reload it:
 
 ```bash
-# Check for gog config directory
-ls -la ~/.config/gogcli/
-
-# Required files:
-# - config.json        (keyring_backend setting)
-# - credentials.json   (OAuth client credentials)
-# - .keyring_password  (encrypted keyring password for non-interactive use)
-# - keyring/           (token storage directory)
+source ~/.bashrc
+# or
+source ~/.zshrc
 ```
 
-## 3. Detecting Keyring Password (Critical for Non-Interactive Environments)
+## Quick Preconditions
 
-When running in a non-interactive environment (no TTY), gog requires `GOG_KEYRING_PASSWORD` to unlock token storage.
+Before retrying send, check:
+1. `gog` is available in PATH.
+2. `GOG_ACCOUNT` is non-empty.
+3. `GOG_KEYRING_PASSWORD` is non-empty.
+4. `RECIPIENT_EMAIL` or `TRENDING_REPORT_RECIPIENT` is non-empty.
+5. Report HTML exists and is non-empty.
 
-How to find the keyring password:
+Example checks:
 
 ```bash
-cat ~/.config/gogcli/.keyring_password
+command -v gog >/dev/null 2>&1
+gog --version
+[ -n "$GOG_ACCOUNT" ]
+[ -n "$GOG_KEYRING_PASSWORD" ]
+: "${RECIPIENT_EMAIL:=${TRENDING_REPORT_RECIPIENT:-}}"
+[ -n "$RECIPIENT_EMAIL" ]
+[ -s "$HTML_FILE" ]
 ```
 
-Verify authentication works:
+## Send Command Template
 
 ```bash
-export GOG_KEYRING_PASSWORD="$(cat ~/.config/gogcli/.keyring_password)"
-export GOG_ACCOUNT="your-email@gmail.com"
-gog gmail list "in:inbox" --max 1
-```
-
-If this returns results without prompting for password, authentication is correctly configured.
-
-## 4. Common Authentication Errors and Solutions
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `no TTY available for keyring file backend password prompt` | Missing `GOG_KEYRING_PASSWORD` | Set env var from `.keyring_password` file |
-| `missing --account` | No account specified | Set `GOG_ACCOUNT` or use `--account` flag |
-| `read token: no such file` | Token not stored | Run `gog auth add <email>` interactively first |
-
-## 5. Sending Email with gog
-
-Always include both environment variables:
-
-```bash
-export GOG_KEYRING_PASSWORD="$(cat ~/.config/gogcli/.keyring_password)"
-export GOG_ACCOUNT="<user-email>"
-
 gog gmail send \
   --to "$RECIPIENT_EMAIL" \
-  --subject "GitHub Weekly Trending Report ($DATE)" \
-  --body-html "$(cat $HTML_FILE)"
+  --subject "GitHub $(echo $PERIOD | sed 's/./\\U&/') Trending Report ($DATE)" \
+  --body-html "$(cat \"$HTML_FILE\")"
 ```
+
+## Failure Rule
+
+If any precondition fails, stop and report the missing prerequisite.
+Do not send with incomplete prerequisites.

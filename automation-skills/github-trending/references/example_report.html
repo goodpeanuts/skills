@@ -32,18 +32,18 @@
 
     <div class="overview-section">
         <div class="overview-title">📊 概述与趋势分析</div>
-        <p><strong>本期核心趋势：</strong>AI Agent 与工程基础设施相关项目持续增长。</p>
+        <p><strong>本期核心趋势：</strong>AI Agent 基础设施与安全自动化项目继续升温，应用层项目更强调可观测和可控落地。</p>
         <p><strong>关注建议：</strong></p>
         <ul>
-            <li><strong>金融方向：</strong>优先关注数据可追溯和决策闭环能力。</li>
-            <li><strong>安全方向：</strong>优先关注可控性和隔离执行能力。</li>
-            <li><strong>工程方向：</strong>优先关注可维护性与扩展机制。</li>
+            <li><strong>金融方向：</strong>优先关注具备数据可追溯、审计链路和风控边界的项目。</li>
+            <li><strong>安全方向：</strong>优先关注权限隔离与误用防护机制，而不是只看攻击能力。</li>
+            <li><strong>工程方向：</strong>优先关注模块分层清晰、扩展点明确、可测试性好的项目。</li>
         </ul>
         <p><strong>建议行动：</strong></p>
         <ol>
-            <li>建立每周高价值项目跟踪机制。</li>
-            <li>在隔离环境验证安全类项目。</li>
-            <li>对候选项目进行小规模 PoC 评估。</li>
+            <li>每周跟踪 stars/forks 增速与 issue 活跃度，筛掉短期噪声热点。</li>
+            <li>先完成结构审查（目录分层/依赖边界/部署方式），再做小规模 PoC。</li>
+            <li>安全或金融高风险场景必须追加源码级证据核验后再推进采用。</li>
         </ol>
     </div>
 
@@ -55,11 +55,11 @@
             <span class="tag tag-green">🟢 开箱即用</span>
             <span class="tag tag-blue">🔵 AI Agent</span>
         </div>
-        <div class="detail-row"><span class="label">是什么:</span> 该项目是一个面向开发者的 AI Agent 工程框架。</div>
-        <div class="detail-row"><span class="label">作用:</span> 用于构建具备任务编排与工具调用能力的自动化代理。</div>
-        <div class="detail-row"><span class="label">效果:</span> 相比同类项目，部署路径更清晰，落地门槛更低。</div>
-        <div class="detail-row"><span class="label">项目分析:</span> 架构分层明确，扩展点设计完整，适合快速原型与中小规模生产试点。</div>
-        <div class="suggestion-box"><strong>建议:</strong> 可作为团队 Agent 工程化基线进行评估。</div>
+        <div class="detail-row"><span class="label">是什么:</span> 该项目是面向开发者的 Agent 工程框架，提供任务编排、工具调用与执行状态管理能力。</div>
+        <div class="detail-row"><span class="label">作用:</span> 用统一编排层连接模型与工具，帮助团队快速构建可扩展的自动化代理工作流。</div>
+        <div class="detail-row"><span class="label">效果:</span> 关注度信号较强（stars/forks 与社区讨论活跃度持续上升）；PoC 到内部试点迁移成本相对更低。</div>
+        <div class="detail-row"><span class="label">项目分析:</span> 技术栈以 Python + workflow orchestration 为核心；从模块分层可见执行编排、工具适配、状态管理解耦，关键机制在任务调度链路与工具调用边界。优势是扩展性和可测试性更好，代价是多工具场景下可观测与失败回滚复杂度上升。</div>
+        <div class="suggestion-box"><strong>建议:</strong> 先在单业务线做受控 PoC（限定工具集合与成本预算），上线前补齐 tracing、重试与熔断策略。</div>
     </div>
 
     <div class="repo-card">
@@ -68,11 +68,11 @@
             <span class="tag tag-red">☠️ 进攻性安全</span>
             <span class="tag tag-yellow">🟡 需配置</span>
         </div>
-        <div class="detail-row"><span class="label">是什么:</span> 该项目是用于自动化安全测试的智能代理系统。</div>
-        <div class="detail-row"><span class="label">作用:</span> 通过自动扫描与策略执行帮助识别潜在漏洞。</div>
-        <div class="detail-row"><span class="label">效果:</span> 在标准化靶场中具备较高漏洞发现效率。</div>
-        <div class="detail-row"><span class="label">项目分析:</span> 适合安全团队在隔离环境下开展红队演练，不建议直接用于生产环境。</div>
-        <div class="suggestion-box"><strong>建议:</strong> 建议纳入内部安全演练流程并建立操作边界。</div>
+        <div class="detail-row"><span class="label">是什么:</span> 该项目是用于自动化安全测试的智能代理系统，聚焦漏洞发现与攻击路径模拟。</div>
+        <div class="detail-row"><span class="label">作用:</span> 通过策略编排自动执行扫描与验证流程，提升安全团队在靶场中的覆盖率与效率。</div>
+        <div class="detail-row"><span class="label">效果:</span> 安全社区关注度增长明显（stars 上升且 issue/PR 互动频繁）；标准化靶场效果好，但生产迁移门槛较高。</div>
+        <div class="detail-row"><span class="label">项目分析:</span> 技术栈通常为 Python + 安全工具链集成 + 策略执行引擎；实现路径可拆为目标枚举、策略调度、结果聚合三段。优势是自动化深度高，风险在于权限控制与误用边界，若隔离与审计不足会带来合规和操作风险。</div>
+        <div class="suggestion-box"><strong>建议:</strong> 仅在隔离靶场和授权范围内使用，先定义操作白名单与审计日志，再推进红队流程集成。</div>
     </div>
 
 </body>

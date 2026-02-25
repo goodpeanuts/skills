@@ -15,10 +15,14 @@ from pathlib import Path
 
 from validate_report import PERIODS, validate_report_dir
 
+OUTPUT_ROOT_NAME = ".github_trending"
 
-def build_paths(base_dir: Path, period: str, date: str) -> dict[str, Path]:
+
+def build_paths(period: str, date: str) -> dict[str, Path]:
+    base_dir = Path.home() / OUTPUT_ROOT_NAME
     report_dir = base_dir / period / date
     return {
+        "base_dir": base_dir,
         "report_dir": report_dir,
         "source_file": report_dir / "original_trending.html",
         "md_file": report_dir / f"report_{date}.md",
@@ -28,17 +32,17 @@ def build_paths(base_dir: Path, period: str, date: str) -> dict[str, Path]:
 
 
 def check_existing_report(
-    base_dir: Path,
     period: str,
     date: str,
     allow_small_source: bool = False,
 ) -> tuple[int, dict[str, object]]:
-    paths = build_paths(base_dir=base_dir, period=period, date=date)
+    paths = build_paths(period=period, date=date)
     html_exists = paths["html_file"].exists()
 
     payload: dict[str, object] = {
         "period": period,
         "date": date,
+        "base_dir": str(paths["base_dir"]),
         "report_dir": str(paths["report_dir"]),
         "source_file": str(paths["source_file"]),
         "md_file": str(paths["md_file"]),
@@ -77,16 +81,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Check whether a report already exists and is valid.")
     parser.add_argument("--period", required=True, choices=sorted(PERIODS))
     parser.add_argument("--date", required=True, help="Date in YYYY-MM-DD")
-    parser.add_argument("--base-dir", default="github_trending", help="Base output directory")
     parser.add_argument(
         "--allow-small-source",
         action="store_true",
-        help="Allow source item count below 10 during validation.",
+        help="Deprecated no-op flag kept for backward compatibility.",
     )
     args = parser.parse_args()
 
     exit_code, payload = check_existing_report(
-        base_dir=Path(args.base_dir),
         period=args.period,
         date=args.date,
         allow_small_source=args.allow_small_source,

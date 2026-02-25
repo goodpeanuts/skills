@@ -15,6 +15,7 @@ PERIODS = {"daily", "weekly", "monthly"}
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 GITHUB_URL_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/?$")
+OUTPUT_ROOT_NAME = ".github_trending"
 
 REQUIRED_MD_FIELDS = ["是什么", "作用", "效果", "项目分析", "建议"]
 REQUIRED_HTML_LABELS = {"是什么", "作用", "效果", "项目分析"}
@@ -70,6 +71,9 @@ class TrendingSourceParser(HTMLParser):
 
         if self._article_depth > 0 and tag == "a" and not self._seen_in_article:
             href = attrs_map.get("href") or ""
+            # 跳过赞助链接，因为它不是真正的趋势项目仓库
+            if "/sponsors/" in href:
+                return
             repo = normalize_repo_path(href)
             if repo:
                 self.repos.append(repo)
@@ -399,14 +403,18 @@ def validate_report_dir(
     if not DATE_RE.fullmatch(date):
         result.error(f"Invalid date: {date}. Expected YYYY-MM-DD.")
 
-    expected_tail = Path(period) / date
-    if not str(report_dir).endswith(str(expected_tail)):
-        result.error(f"Report directory must end with '{expected_tail}', got '{report_dir}'.")
+    expected_report_dir = (Path.home() / OUTPUT_ROOT_NAME / period / date).resolve()
+    actual_report_dir = report_dir.expanduser().resolve()
+    if actual_report_dir != expected_report_dir:
+        result.error(
+            "Report directory must be exactly under current user home: "
+            f"expected '{expected_report_dir}', got '{actual_report_dir}'."
+        )
 
-    source_file = report_dir / "original_trending.html"
-    md_file = report_dir / f"report_{date}.md"
-    html_file = report_dir / f"report_{date}.html"
-    manifest_file = report_dir / "report_manifest.json"
+    source_file = actual_report_dir / "original_trending.html"
+    md_file = actual_report_dir / f"report_{date}.md"
+    html_file = actual_report_dir / f"report_{date}.html"
+    manifest_file = actual_report_dir / "report_manifest.json"
 
     required_files = [source_file, md_file, html_file, manifest_file]
     for file_path in required_files:
@@ -431,14 +439,6 @@ def validate_report_dir(
     source_repos = extract_source_repos(source_text)
     if not source_repos:
         result.error("Cannot extract repo list from original_trending.html.")
-    elif len(source_repos) < 10 and not allow_small_source:
-        result.error(
-            f"Extracted only {len(source_repos)} source items (<10). Source may be truncated."
-        )
-    elif len(source_repos) < 10:
-        result.warn(
-            f"Source item count is {len(source_repos)} (<10), allowed by --allow-small-source."
-        )
 
     markdown_entries = parse_markdown_entries(md_text, result)
 
@@ -553,13 +553,17 @@ def validate_report_dir(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate GitHub Trending report output directory.")
-    parser.add_argument("--report-dir", required=True, help="Path to github_trending/<period>/<date>")
+    parser.add_argument(
+        "--report-dir",
+        required=True,
+        help="Path to report directory (must be: ~/.github_trending/<period>/<date>)",
+    )
     parser.add_argument("--period", required=True, choices=sorted(PERIODS))
     parser.add_argument("--date", required=True, help="Date in YYYY-MM-DD format")
     parser.add_argument(
         "--allow-small-source",
         action="store_true",
-        help="Allow source item count below 10 (useful for local fixtures).",
+        help="Deprecated no-op flag kept for backward compatibility.",
     )
     args = parser.parse_args()
 

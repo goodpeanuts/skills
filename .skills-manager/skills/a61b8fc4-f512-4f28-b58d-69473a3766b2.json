@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a61b8fc4-f512-4f28-b58d-69473a3766b2",
+  "path": "obsidian/obsidian-templater-compiler",
+  "path_key": "obsidian/obsidian-templater-compiler",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

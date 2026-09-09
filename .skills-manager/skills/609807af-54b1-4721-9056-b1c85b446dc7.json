@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "609807af-54b1-4721-9056-b1c85b446dc7",
+  "path": "productive-skills/financial-advisor",
+  "path_key": "productive-skills/financial-advisor",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

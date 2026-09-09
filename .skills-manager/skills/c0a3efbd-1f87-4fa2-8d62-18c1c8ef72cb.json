@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "c0a3efbd-1f87-4fa2-8d62-18c1c8ef72cb",
+  "path": "automation-skills/wsl-ssh-sync-with-host",
+  "path_key": "automation-skills/wsl-ssh-sync-with-host",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "import",
+    "ref": null,
+    "subpath": null,
+    "branch": null
+  }
+}

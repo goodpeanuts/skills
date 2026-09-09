@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a1329f8f-fb66-4744-bf80-c0bfe63be2f8",
+  "path": "mono-color",
+  "path_key": "mono-color",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/yanliudesign/mono-color-skill/",
+    "subpath": null,
+    "branch": null
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "4929c7d5-c74a-410e-8b70-6cf873818e75",
+  "path": "full-output-enforcement",
+  "path_key": "full-output-enforcement",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/Leonxlnx/taste-skill.git",
+    "subpath": "skills/output-skill",
+    "branch": null
+  }
+}

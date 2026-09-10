@@ -1,0 +1,53 @@
+{
+  "skill_name": "gc-still-image-motion-director",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "这张图给即梦做成6秒视频，应该让哪里动？文字和排版别乱。",
+      "expected_output": "Inspects the image, separates observation from recommendation, selects no more than one primary motion and one linked response, names fixed elements, and returns a copy-ready Chinese prompt.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "看一下 <图片文件夹> 这一批图，分别告诉我哪些适合动、哪些最好不要动，再给每张写图生视频提示词。",
+      "expected_output": "Inventories the real folder, identifies shared layout constraints, classifies each image individually as motion, micro-motion, or static, and avoids applying one universal effect.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "这个标本海报怎么做动态？我不想让它像活了一样飞走。",
+      "expected_output": "Recognizes archival stillness, keeps the specimen fixed, proposes only a justified observation or environmental trace, and locks typography and paper.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我上次生成的视频文字一直变、纸张也在呼吸，帮我重写提示词。",
+      "expected_output": "Diagnoses layout, text, paper, or camera drift; reduces active regions; adds explicit locks; and writes a shorter bounded-motion prompt.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "只给我一条可以复制到即梦的提示词：让这张雨窗拼贴轻微动起来。",
+      "expected_output": "Returns only one copy-ready prompt with motion confined inside the relevant photo, explicit locks, and restrained duration.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "帮我分析这个已经剪完的30秒视频讲了什么。",
+      "expected_output": "Should not trigger this skill unless the user also asks to derive a reusable still-image motion prompt.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "生成一张复古档案风海报。",
+      "expected_output": "Should not trigger this skill because this is ordinary image generation rather than still-image motion direction.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "把照片里的电线杆删掉，天空改成蓝色。",
+      "expected_output": "Should not trigger this skill because this is image editing rather than image-to-video motion design.",
+      "files": []
+    }
+  ]
+}

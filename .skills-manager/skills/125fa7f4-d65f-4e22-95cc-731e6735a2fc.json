@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "125fa7f4-d65f-4e22-95cc-731e6735a2fc",
+  "path": "morandi-cinematic-poster-zeejay",
+  "path_key": "morandi-cinematic-poster-zeejay",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/zeejay0/gathered-scenes-zine-skill",
+    "subpath": "skills/morandi-cinematic-poster-zeejay",
+    "branch": null
+  }
+}

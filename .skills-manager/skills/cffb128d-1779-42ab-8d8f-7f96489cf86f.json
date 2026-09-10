@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "cffb128d-1779-42ab-8d8f-7f96489cf86f",
+  "path": "gpt-taste",
+  "path_key": "gpt-taste",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/Leonxlnx/taste-skill.git",
+    "subpath": "skills/gpt-tasteskill",
+    "branch": null
+  }
+}

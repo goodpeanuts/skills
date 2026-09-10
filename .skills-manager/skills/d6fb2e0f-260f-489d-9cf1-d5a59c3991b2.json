@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "d6fb2e0f-260f-489d-9cf1-d5a59c3991b2",
+  "path": "scene-distillation-zine-v1-3",
+  "path_key": "scene-distillation-zine-v1-3",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/zeejay0/gathered-scenes-zine-skill",
+    "subpath": "skills/scene-distillation-zine-v1-3",
+    "branch": null
+  }
+}

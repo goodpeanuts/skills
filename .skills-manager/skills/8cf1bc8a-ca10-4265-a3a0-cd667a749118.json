@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "8cf1bc8a-ca10-4265-a3a0-cd667a749118",
+  "path": "gc-minimal-zine-poster-v0-3",
+  "path_key": "gc-minimal-zine-poster-v0-3",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/LiamGvchi/gc-minimal-zine-poster.git",
+    "subpath": null,
+    "branch": null
+  }
+}

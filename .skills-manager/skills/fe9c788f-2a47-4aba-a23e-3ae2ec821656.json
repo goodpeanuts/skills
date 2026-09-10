@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "fe9c788f-2a47-4aba-a23e-3ae2ec821656",
+  "path": "scenes-gathered-zine-v1-3",
+  "path_key": "scenes-gathered-zine-v1-3",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/zeejay0/gathered-scenes-zine-skill",
+    "subpath": "skills/scenes-gathered-zine-v1-3",
+    "branch": null
+  }
+}

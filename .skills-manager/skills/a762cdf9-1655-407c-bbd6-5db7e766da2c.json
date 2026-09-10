@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "a762cdf9-1655-407c-bbd6-5db7e766da2c",
+  "path": "scenes-gathered-zine-live-flow-v1-0",
+  "path_key": "scenes-gathered-zine-live-flow-v1-0",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/zeejay0/gathered-scenes-zine-skill",
+    "subpath": "skills/scenes-gathered-zine-live-flow-v1-0",
+    "branch": null
+  }
+}

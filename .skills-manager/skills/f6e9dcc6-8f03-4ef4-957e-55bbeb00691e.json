@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "f6e9dcc6-8f03-4ef4-957e-55bbeb00691e",
+  "path": "gc-still-image-motion-director",
+  "path_key": "gc-still-image-motion-director",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/LiamGvchi/gc-still-image-motion-director.git",
+    "subpath": null,
+    "branch": null
+  }
+}

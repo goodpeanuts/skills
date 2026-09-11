@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "c26719db-4be5-4c75-aef6-cc7951188450",
+  "path": "huashu-mac-use",
+  "path_key": "huashu-mac-use",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/alchaincyf/huashu-mac-use",
+    "subpath": null,
+    "branch": null
+  }
+}

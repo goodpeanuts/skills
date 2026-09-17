@@ -6,8 +6,8 @@
   "enabled": true,
   "tags": [],
   "source": {
-    "type": "skillssh",
-    "ref": "alchaincyf/huashu-design/huashu-design",
+    "type": "git",
+    "ref": "https://github.com/alchaincyf/huashu-design",
     "subpath": null,
     "branch": null
   }

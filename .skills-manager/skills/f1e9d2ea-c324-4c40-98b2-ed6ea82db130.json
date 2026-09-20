@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "f1e9d2ea-c324-4c40-98b2-ed6ea82db130",
+  "path": "geo-sleuth",
+  "path_key": "geo-sleuth",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/Oldcircle/geo-sleuth",
+    "subpath": "skills/geo-sleuth",
+    "branch": null
+  }
+}

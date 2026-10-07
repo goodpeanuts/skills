@@ -69,7 +69,7 @@ fi
 if (( is_bili && ! force )) && [[ -f "$REGISTRY" ]] && \
    python3 -c "import json,sys; sys.exit(0 if '$vid' in json.load(open('$REGISTRY')).get('videos',{}) else 1)" 2>/dev/null; then
   folder=$(python3 -c "import json; print(json.load(open('$REGISTRY'))['videos']['$vid']['folder'])")
-  echo "SKIP: $vid 已总结过 → $folder（重跑请加 --force）"
+  echo "SKIP: ${vid} 已总结过 -> ${folder} (重跑请加 --force)"
   exit 0
 fi
 

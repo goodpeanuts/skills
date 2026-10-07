@@ -1,7 +1,7 @@
 # 证据底稿 · {{TITLE}}
 
 > 本文档是 summary.md 的可核验底稿：所有进入总结的辅助证据（画面、弹幕、评论）在此留痕。
-> 完整结构化数据见 `raw/audience.json`；素材（danmaku.xml / comments.json / frames/ 等）不入 Git，可用 `--force` 重采。
+> 完整结构化数据见 `evidence/audience.json`；素材（danmaku.xml / comments.json / frames/ 等）不入 Git，可用 `--force` 重采。
 
 ## 1. 溯源
 
@@ -17,7 +17,7 @@
 
 ## 2. 弹幕分析
 
-> 来源: raw/danmaku.xml（解析结果见 raw/audience.json `danmaku` 字段）
+> 来源: evidence/danmaku.xml（解析结果见 evidence/audience.json `danmaku` 字段）
 
 - 总条数 {{N}} · 密度 {{X}} 条/分钟
 - **峰值时刻**（10s 窗口 Top3，供补帧与高能标注）:
@@ -30,7 +30,7 @@
 
 ## 3. 评论区
 
-> 来源: raw/comments.json（热评 {{SAMPLED}}/{{TOTAL}} 条 + 最热楼中楼）
+> 来源: evidence/comments.json（热评 {{SAMPLED}}/{{TOTAL}} 条 + 最热楼中楼）
 
 - 代表性评论摘录（原文 + 赞数；UP 主回复标注 [UP]）:
   - 「……」（赞 N）— 观众名
@@ -39,7 +39,7 @@
 
 ## 4. 关键帧观察
 
-> 全部帧统一存放 raw/frames/*.jpg（不分机械/Agent 子目录，下表"补帧动机"列区分来源）
+> 全部帧统一存放 evidence/frames/*.jpg（不分机械/Agent 子目录，下表"补帧动机"列区分来源）
 > 机械抽帧 = 章节边界优先+均匀补齐，上限 12；Agent 补充帧 = `--at` 指定时刻，无上限
 
 | 文件 | 时间戳 | 画面观察（可读出的具体信息） | 补帧动机（agent 帧适用） |

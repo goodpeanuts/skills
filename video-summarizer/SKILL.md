@@ -31,11 +31,12 @@ archive/
     └── BV14tTj6CEuM_0成本搭建网络小店/
         ├── summary.md                ← 追踪（纯用户向总结，零证据痕迹）
         ├── evidence.md               ← 追踪（人读证据底稿，文本溯源）
-        └── raw/                      ← 素材区
-            ├── audience.json          ← 追踪（弹幕+评论机读底账）
-            ├── subtitle.srt          ← gitignore（字幕源，--force 重采可得）
+        ├── raw/                      ← 原始文件区
+        │   ├── subtitle.srt          ← 追踪（从视频提取加工的字幕）
+        │   └── video.mp4 / audio.mp3 ← gitignore
+        └── evidence/                 ← 衍生证据数据区（evidence.md 引用的证据都在此）
+            ├── audience.json         ← 追踪（弹幕+评论机读底账）
             ├── danmaku.xml / comments.json / chapters.json ← gitignore
-            ├── video.mp4 / audio.mp3 ← gitignore
             └── frames/*.jpg          ← gitignore（抽帧统一存放，不分 auto/agent）
 cache/
 └── cookies.json                       ← 登录凭证，gitignore（平台命名空间 JSON）
@@ -68,10 +69,10 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force # 强制重采
 
 按摘要 JSON 依次：
 
-1. **读帧**：逐张查看 `raw/frames/*.jpg`（Read 图片），把画面事实记录下来（界面路径、数据、演示效果——口播没讲的信息）。
+1. **读帧**：逐张查看 `evidence/frames/*.jpg`（Read 图片），把画面事实记录下来（界面路径、数据、演示效果——口播没讲的信息）。
 2. **按需补帧**（无上限）：弹幕峰值时刻（audience.json `danmaku.peaks[].t`）、字幕提到"看这个界面"但机械帧未覆盖、信息密集段无视觉佐证时：
    ```bash
-   bash "$SKILL_DIR/scripts/extract_frames.sh" "<folder>/raw/video.mp4" "<folder>/raw/frames" --at "65,130.5,208"
+   bash "$SKILL_DIR/scripts/extract_frames.sh" "<folder>/raw/video.mp4" "<folder>/evidence/frames" --at "65,130.5,208"
    ```
 3. **whisper 兜底**（`needs_whisper: 1` 时）：
    ```bash
@@ -122,11 +123,10 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish \
 cache/
 /cookies.txt
 .venv/
-# raw/ 素材区（人读产物与 raw/audience.json 底账保留追踪）
-archive/**/raw/danmaku.xml
-archive/**/raw/comments.json
-archive/**/raw/chapters.json
-archive/**/raw/subtitle.srt
+# 素材区：raw/ 仅媒体不追踪（subtitle.srt 追踪）；evidence/ 原始衍生数据不追踪
+archive/**/evidence/danmaku.xml
+archive/**/evidence/comments.json
+archive/**/evidence/chapters.json
 # 本地研究/测试目录
 downloads/
 research/
@@ -145,6 +145,7 @@ __pycache__/
 - **HuggingFace 限速**（whisper 模型下载失败）：从 ModelScope 手动下载模型放到 `cache/whisper-models/`，改用本地模型转写：
   ```bash
   uv run "$SKILL_DIR/scripts/transcribe_local.py" <folder>/raw/audio.mp3 <folder>/raw [cache/whisper-models/faster-whisper-small]
+   mv <folder>/raw/subtitle.vtt <folder>/raw/subtitle.srt 2>/dev/null || true
   ```
 - **视频过长（>1 小时）**：询问用户是否只处理部分；whisper 分片转写自动处理。
 - **风控（HTTP 412/352）**：稍后重试或补充 buvid Cookie。

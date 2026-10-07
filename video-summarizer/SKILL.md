@@ -109,6 +109,8 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish \
 
 ## Git Conventions
 
+目录职责铁律：**功能性脚本与约束全部在 Skill 内**（本目录）；**认证/缓存/凭据全部在项目级临时目录 `cache/`**；**总结产物全部入 Git 追踪**。Skill 本体经 Skill Manager 管理（真实存储 `~/.agents/skills/video-summarizer`，`~/.zcode/skills/` 下为软链接）。
+
 `.gitignore` 必须包含（首次运行前确保就位）：
 
 ```
@@ -117,15 +119,20 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish \
 *.mp3
 *.jpg
 *.png
-# 凭证与缓存
+*.m4a
+# 凭证与缓存（cache/ 含 cookies、whisper 模型等临时态）
 cache/
+/cookies.txt
 .venv/
-# 原始证据（消化版 audience.json/evidence.md 保留追踪）
+# 原始证据（消化版 audience.json/evidence.md/chapters.json 保留追踪）
 archive/**/evidence/danmaku.xml
 archive/**/evidence/comments.json
-# 遗留测试目录
+# 本地研究/测试目录
 downloads/
+research/
+login_qr.png
 .DS_Store
+__pycache__/
 ```
 
 原则：**Git 只追踪文本**；evidence.md 的文本溯源（ID/时间戳/出处）不依赖二进制存在，媒体可随时 `--force` 重采。
@@ -135,6 +142,10 @@ downloads/
 - **SKIP 提示**：视频已总结 → 直接引用归档位置，除非用户要求重跑（--force）。
 - **无字幕且 whisper 无有效语音**：按提示词规则 8 拒绝编造，输出失败原因。
 - **Cookie 导出失败**（无 Chrome/未登录）：提示用户登录或改扫码；降级为无登录（仍可拿 CC 字幕）。
+- **HuggingFace 限速**（whisper 模型下载失败）：从 ModelScope 手动下载模型放到 `cache/whisper-models/`，改用本地模型转写：
+  ```bash
+  uv run "$SKILL_DIR/scripts/transcribe_local.py" <audio.mp3> <folder> [cache/whisper-models/faster-whisper-small]
+  ```
 - **视频过长（>1 小时）**：询问用户是否只处理部分；whisper 分片转写自动处理。
 - **风控（HTTP 412/352）**：稍后重试或补充 buvid Cookie。
 

@@ -7,7 +7,7 @@
 #        [--subtitle-lang L] [--platform P]      认知阶段完成后回写 registry
 #
 # 机械阶段产出: archive/YYYY-MM/<ID_标题>/{video.mp4,audio.mp3,subtitle.srt,
-#   transcript.txt,evidence/{danmaku.xml,audience.json,comments.json,chapters.json,
+#   evidence/{audience.json,comments.json,danmaku.xml,chapters.json(中间件,不追踪),
 #   frames/auto/*.jpg,frames/agent/}}；stdout 末行输出 JSON 摘要供 Agent 消费。
 set -euo pipefail
 
@@ -123,11 +123,6 @@ else
 fi
 sub_file=$(ls "$pkg"/subtitle.*.srt 2>/dev/null | head -1 || true)
 [[ -n "$sub_file" ]] && mv "$sub_file" "$pkg/subtitle.srt"
-
-# 转写文本
-if [[ -f "$pkg/subtitle.srt" ]]; then
-  sed '/^[0-9]*$/d; /^$/d; /-->/d' "$pkg/subtitle.srt" > "$pkg/transcript.txt"
-fi
 
 # 章节 + 机械抽帧
 yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --print "%(chapters)j" "$url" > "$pkg/evidence/chapters.json" 2>/dev/null || echo "null" > "$pkg/evidence/chapters.json"

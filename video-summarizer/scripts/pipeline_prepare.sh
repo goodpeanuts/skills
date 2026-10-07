@@ -120,6 +120,7 @@ import fcntl, json, shutil, sys
 from datetime import datetime, timezone
 from pathlib import Path
 reg_path, folder, meta_path = sys.argv[1:4]
+folder = folder.rstrip("/")  # 容忍调用方带尾斜杠，registry 内路径保持规范
 m = json.loads(Path(meta_path).read_text())
 entry = {
     "title": m.get("title"),
@@ -379,6 +380,10 @@ print("yes" if m.get("platform") == sys.argv[2] and m.get("id") == sys.argv[3] e
 PY
 )
       if [[ "$match" == "yes" ]]; then
+        # 注意顺序: 提示行先输出，重建 JSON 最后打印——Python stdout 走管道是
+        # 块缓冲（进程退出才刷出），若 echo 在其后，2>&1 合并捕获时契约行会
+        # 被提示行挤掉末位
+        echo "续跑: 机械阶段产物完好，已从中断处恢复（重采请加 --force）" >&2
         python3 - "$pkg" "$pkg/meta.json" <<'PY'
 import json, sys
 from pathlib import Path
@@ -404,7 +409,6 @@ h = {
 }
 print(json.dumps(h, ensure_ascii=False))
 PY
-        echo "续跑: 机械阶段产物完好，已从中断处恢复（重采请加 --force）" >&2
         exit 0
       fi
     fi

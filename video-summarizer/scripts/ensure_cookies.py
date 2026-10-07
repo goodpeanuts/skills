@@ -171,12 +171,12 @@ def cmd_ensure(platform: str, url: str):
                           f"cache/_{platform}.cookies.txt（Netscape 格式）")
     cfg = load_platform_cfg(platform)
 
-    # 1) 既有文件（含手动放置）优先：有效即采用，无效则告警继续（不动用户文件）
+    # 1) 既有文件（含手动放置）优先：有效即采用，**原样使用不回写**
+    #    （write_netscape 只写 wanted 子集，回写会裁掉用户文件里的非关键 cookie）
     final = netscape_path(platform)
     if final.exists():
         try:
             entry = store_entry(platform, parse_netscape_file(platform, final), source="file")
-            write_netscape(platform, entry)  # 归一化重写（值不变、域行完整）
             out({"ok": True, "account": entry["account"], "source": "file"})
             return
         except CookieError as e:

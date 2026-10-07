@@ -48,7 +48,7 @@ PKG=$(printf '%s' "$h" | python3 -c 'import json,sys;print(json.load(sys.stdin)[
 echo "== E2: 中断续跑（删除 registry 模拟认知阶段中断） =="
 echo '{"videos":{}}' > archive/registry.json
 out=$(bash "$PREP" "$U/withaudio.mp4" 2>&1); rc=$?
-h2=$(printf '%s\n' "$out" | hline)
+h2=$(printf '%s\n' "$out" | grep '^{' | tail -1)
 [[ $rc -eq 0 ]] && ok "续跑 exit=0" || bad "续跑 exit=$rc"
 [[ "$h2" == "$h" ]] && ok "续跑交接 JSON 与首次一致" || bad "交接 JSON 不一致"
 printf '%s\n' "$out" | grep -q "续跑" && ok "续跑提示出现" || bad "无续跑提示"

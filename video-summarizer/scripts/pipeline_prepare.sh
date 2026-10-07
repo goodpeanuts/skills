@@ -264,8 +264,9 @@ if [[ "$platform" == "bilibili" ]]; then
     has_comments=1
   fi
 else
+  # yt-dlp 语义: max_comments 多值须重复键（总数;顶层;回复;每线程回复;深度），逗号串无效
   ea=()
-  [[ "$platform" == "youtube" ]] && ea=(--extractor-args "youtube:max_comments=60,15,5,10")
+  [[ "$platform" == "youtube" ]] && ea=(--extractor-args "youtube:max_comments=60;max_comments=15;max_comments=5;max_comments=10")
   yt-dlp --no-playlist --skip-download --write-comments --write-info-json ${ea[@]+"${ea[@]}"} \
     ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments" "$url" >/dev/null 2>&1 || true
   if [[ -f "$pkg/evidence/comments.info.json" ]]; then

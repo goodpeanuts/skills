@@ -2,7 +2,8 @@
 
 > 本文档是 summary.md 的可核验底稿：所有进入总结的辅助证据（画面、弹幕、评论）在此留痕。
 > 完整结构化数据见 `evidence/audience.json`；机械阶段元数据见 `meta.json`；
-> 素材（danmaku.xml / comments.info.json / frames/ 等）不入 Git，可用 `--force` 重采。
+> 素材（danmaku.xml / comments.info.json / frames/ 等）不入 Git，可用 `--force` 重采（落回原归档目录）。
+> 占位符取值来源：本表各项 ← meta.json；观众数据 ← audience.json；章节 ← chapters.json。
 
 ## 1. 溯源
 
@@ -12,8 +13,8 @@
 | 链接 | {{URL}} |
 | 作者 | {{UPLOADER}}（id={{UPLOADER_ID}}） |
 | 时长 / 总结时间 | {{DURATION}} / {{TIME}} |
-| 字幕来源 | {{SUBTITLE_LANG}}（subtitle_source: manual=人工或CC / auto=自动生成 / whisper=本地转写） |
-| 登录账号（Cookie 缓存） | {{ACCOUNT}}（无登录态时为空） |
+| 字幕来源 | {{SUBTITLE_LANG}}（subtitle_source: manual=人工或CC / auto=自动生成 / whisper=本地转写；以 meta.json 为准） |
+| 登录账号（Cookie 缓存） | {{ACCOUNT}}（meta.json `account`，无登录态时为空） |
 | 抓取方式 | pipeline_prepare.sh 机械阶段 + Agent 认知阶段 |
 
 ## 2. 弹幕分析（bilibili 专属能力位，无弹幕数据时整章省略）
@@ -42,7 +43,7 @@
 ## 4. 关键帧观察
 
 > 全部帧统一存放 evidence/frames/*.jpg（下表"补帧动机"列区分来源）
-> 机械抽帧 = 章节边界优先+均匀补齐（自适应上限，时长/75s 夹 8..20，见 meta.json）；
+> 机械抽帧 = 章节边界优先+均匀补齐（自适应上限，时长/75s 夹 8..20，实际张数见 meta.json frames.extracted）；
 > Agent 补充帧 = `--at` 指定时刻，无上限
 
 | 文件 | 时间戳 | 画面观察（可读出的具体信息） | 补帧动机（agent 帧适用） |
@@ -50,7 +51,7 @@
 | 00-00-20.jpg | 0:20 | …… | — |
 | 00-02-05.jpg | 2:05 | …… | 弹幕峰值/信息缺口：…… |
 
-## 5. 原始文件清单
+## 5. 原始文件清单（本归档实际情况；Git 追踪规则以项目 .gitignore 托管块为单一事实源）
 
 | 文件 | Git | 说明 |
 |------|-----|------|
@@ -59,6 +60,6 @@
 | evidence/audience.json | 追踪 | 弹幕+评论结构化底账 |
 | evidence/danmaku.xml | 忽略 | 弹幕原始 XML（bilibili，重采可得） |
 | evidence/comments.info.json | 忽略 | 评论原始侧账（重采可得） |
-| evidence/chapters.json | 忽略 | 官方章节（重采可得） |
+| evidence/chapters.json | 忽略 | 官方章节（含 end_time，重采可得） |
 | evidence/frames/*.jpg | 忽略 | 抽帧图片（重采可得） |
-| raw/video.* / raw/audio.* | 忽略 | 媒体文件（实际文件名见 meta.json） |
+| raw/video.* / raw/audio.* | 忽略 | 媒体文件（实际文件名见 meta.json；无音轨时无 audio） |

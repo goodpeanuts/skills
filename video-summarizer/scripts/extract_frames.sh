@@ -16,10 +16,10 @@ video=$1 outdir=$2; shift 2
 max=12 chapters="" at=""
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --max) max=$2; shift 2 ;;
-    --chapters) chapters=$2; shift 2 ;;
-    --at) at=$2; shift 2 ;;
-    *) shift ;;
+    --max) [[ $# -ge 2 ]] || { echo "ERROR: --max 缺少取值" >&2; exit 1; }; max=$2; shift 2 ;;
+    --chapters) [[ $# -ge 2 ]] || { echo "ERROR: --chapters 缺少取值" >&2; exit 1; }; chapters=$2; shift 2 ;;
+    --at) [[ $# -ge 2 ]] || { echo "ERROR: --at 缺少取值" >&2; exit 1; }; at=$2; shift 2 ;;
+    *) echo "ERROR: 未知参数: $1" >&2; exit 1 ;;
   esac
 done
 mkdir -p "$outdir"

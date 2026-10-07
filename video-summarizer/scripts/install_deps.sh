@@ -81,9 +81,8 @@ fi
 # 4. faster-whisper (managed by uv)
 # ==========================================
 echo ""
-echo "[4/6] Checking faster-whisper..."
-echo "  faster-whisper will be automatically managed by uv"
-echo "  (installed on-demand when running transcription scripts)"
+echo "[4/6] faster-whisper (说明性检查，无安装动作)"
+echo "  由 uv 在首次运行转写脚本时按需安装（parallel_transcribe.py 的 PEP 723 内联依赖）"
 
 # ==========================================
 # 5. JS runtime (yt-dlp YouTube 等平台需要，deno 为默认支持项)

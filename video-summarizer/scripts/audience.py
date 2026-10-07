@@ -5,6 +5,7 @@
   bili    --url <URL> [--danmaku-xml <PATH>] --out-dir <DIR> [--duration <sec>]
           B 站能力位: v2/reply 热评 API（ps=20 两页凑 top30、楼中楼≤2、作者回复
           标注 is_up）+ 弹幕 XML 解析（10s 窗口不重叠峰值 Top3、高频文本 Top10）
+          --url 应传蒸馏后的 canonical webpage_url（含 BV 号；b23.tv 短链不含）
   generic --info-json <PATH> --out-dir <DIR> [--duration <sec>]
           通用能力位: 消化 yt-dlp --write-comments 产出的 info.json
           （YouTube 等平台原生支持；按赞数取 top30，回复按 parent 关联）
@@ -12,6 +13,7 @@
 输出: <out-dir>/audience.json（Git 追踪）。
 bili 分支同时落 <out-dir>/comments.info.json（原始侧账，Git 忽略）；
 generic 分支的 comments.info.json 由 pipeline 调 yt-dlp 落盘，本脚本只读。
+UA 与关键 Cookie 名从 platforms.json 读取（与 ensure_cookies.py 共享单一事实源）。
 
 schema: {"video": {..., "author": {"name","id"}}, "generated_at": ...,
          "danmaku": null | {...}, "comments": {"total","sampled","up_mid","top":[...]}}
@@ -27,8 +29,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/132.0 Safari/537.36")
+CONFIG_PATH = Path(__file__).parent / "platforms.json"
 TOP_N = 30       # 热评采样条数
 SUB_REPLY_N = 2  # 每条热评携带的楼中楼条数
 PEAK_N = 3       # 弹幕峰值窗口数
@@ -38,19 +39,32 @@ class AudienceError(Exception):
     pass
 
 
-def http_json(url: str, sessdata: str = "") -> dict:
-    headers = {"User-Agent": UA, "Referer": "https://www.bilibili.com/"}
+def bili_cookie_cfg() -> tuple[str, str]:
+    """(login_cookie 名, UA)，读 platforms.json 的 bilibili 配置。"""
+    if not CONFIG_PATH.exists():
+        raise AudienceError(f"platforms.json 缺失: {CONFIG_PATH}")
+    cfg = json.loads(CONFIG_PATH.read_text())
+    cookie = (cfg.get("bilibili") or {}).get("cookie") or {}
+    ua = cfg.get("_meta", {}).get("ua") or ""
+    if not cookie.get("login_cookie"):
+        raise AudienceError("platforms.json 中缺少 bilibili.cookie.login_cookie 配置")
+    return cookie["login_cookie"], ua
+
+
+def http_json(url: str, referer: str, cookie_name: str, sessdata: str = "") -> dict:
+    headers = {"User-Agent": bili_cookie_cfg()[1], "Referer": referer}
     if sessdata:
-        headers["Cookie"] = f"SESSDATA={sessdata}"
+        headers["Cookie"] = f"{cookie_name}={sessdata}"
     req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode())
 
 
 def load_sessdata() -> str:
+    login_cookie, _ = bili_cookie_cfg()
     p = Path("cache/cookies.json")
     try:
-        return json.loads(p.read_text()).get("bilibili", {}).get("cookies", {}).get("SESSDATA", "")
+        return json.loads(p.read_text()).get("bilibili", {}).get("cookies", {}).get(login_cookie, "")
     except (OSError, json.JSONDecodeError):
         return ""
 
@@ -98,12 +112,17 @@ def parse_danmaku(xml_path: str, duration_s: float) -> dict | None:
 # ---------- B 站: 评论 ----------
 
 def fetch_bili_comments(bvid: str, sessdata: str) -> tuple[dict, list]:
-    view = http_json(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}", sessdata)["data"]
+    login_cookie, _ = bili_cookie_cfg()
+    referer = json.loads(CONFIG_PATH.read_text())["bilibili"]["cookie"].get(
+        "referer") or "https://www.bilibili.com/"
+    view = http_json(f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
+                     referer, login_cookie, sessdata)["data"]
     aid, up_mid, up_name = view["aid"], view["owner"]["mid"], view["owner"]["name"]
+    title = view.get("title")
     replies, total = [], 0
     for pn in (1, 2):  # 接口单页上限 ps=20，两页凑热评池
         d = http_json(f"https://api.bilibili.com/x/v2/reply?type=1&oid={aid}"
-                      f"&sort=1&ps=20&pn={pn}", sessdata)
+                      f"&sort=1&ps=20&pn={pn}", referer, login_cookie, sessdata)
         data = d.get("data", {})
         total = data.get("page", {}).get("acount", total)
         replies.extend(data.get("replies") or [])
@@ -119,7 +138,7 @@ def fetch_bili_comments(bvid: str, sessdata: str) -> tuple[dict, list]:
                          "is_up": s["member"]["mid"] == up_mid,
                          "text": s["content"]["message"]} for s in subs],
         })
-    meta = {"aid": aid, "up_mid": up_mid, "up_name": up_name,
+    meta = {"aid": aid, "up_mid": up_mid, "up_name": up_name, "title": title,
             "total": total, "sampled": len(top)}
     return meta, top
 
@@ -132,7 +151,7 @@ def cmd_bili(url: str, danmaku_xml: str, out_dir: str, duration: float):
     meta, top = fetch_bili_comments(m.group(1), sessdata)
     danmaku = parse_danmaku(danmaku_xml, duration)
     audience = {
-        "video": {"id": m.group(1), "title": None,
+        "video": {"id": m.group(1), "title": meta.get("title"),
                   "author": {"name": meta["up_name"], "id": meta["up_mid"]},
                   "duration": duration},
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),

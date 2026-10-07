@@ -29,7 +29,11 @@ fmt_name() { python3 -c "s=float('$1'); h=int(s//3600); m=int(s%3600//60); sec=i
 
 out_path() {
   # 同一秒多帧: 00-01-23.jpg → 00-01-23-2.jpg → 00-01-23-3.jpg
-  local stem="$outdir/$(fmt_name "$1")" f="${stem}.jpg" n=1
+  # 注意: local 多赋值语句的实参先整体展开后赋值，引用前值必须分开赋值
+  local stem f n
+  stem="$outdir/$(fmt_name "$1")"
+  f="${stem}.jpg"
+  n=1
   while [[ -e "$f" ]]; do n=$((n+1)); f="${stem}-$n.jpg"; done
   printf '%s' "$f"
 }

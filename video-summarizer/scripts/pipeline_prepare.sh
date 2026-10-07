@@ -145,8 +145,9 @@ cookie_args=()
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-# 1) 单次全量元数据（字幕清单/章节一并到手）
-yt-dlp -J --skip-download --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} \
+# 1) 单次全量元数据（字幕清单/章节一并到手；--write-subs 触发 yt-dlp 懒加载的
+#    字幕探测——否则 -J 的 subtitles 恒为空字典。-J 的 simulate 语义不会写盘）
+yt-dlp -J --skip-download --no-playlist --write-subs ${cookie_args[@]+"${cookie_args[@]}"} \
   "$url" > "$tmpdir/info.json" 2> "$tmpdir/ytdlp.err" \
   || die "获取元信息失败: $(tail -3 "$tmpdir/ytdlp.err" | tr '\n' ' ')"
 
@@ -185,11 +186,14 @@ PY
   if [[ -n "$skip" ]]; then echo "$skip"; exit 0; fi
 fi
 
-# 4) 归档目录（平台子目录 + 消毒目录名；目录已存在但 registry 无此 ID 视为冲突）
+# 4) 归档目录（平台子目录 + 消毒目录名）
+#    目录已存在时清理机械阶段自有产物（防旧 subtitle.srt 等残留被误当有效），
+#    summary.md/evidence.md 归认知阶段覆写，保留到那时
 ym=$(date +%Y-%m)
 pkg="archive/$ym/$platform/$safe_dir"
-if [[ -d "$pkg" ]] && (( ! force )); then
-  if ! python3 - "$REGISTRY" "$platform" "$id" <<'PY'
+if [[ -d "$pkg" ]]; then
+  if (( ! force )); then
+    if ! python3 - "$REGISTRY" "$platform" "$id" <<'PY'
 import json, sys
 from pathlib import Path
 try:
@@ -199,9 +203,11 @@ except Exception:
 entry = reg.get("videos", {}).get(sys.argv[2], {}).get(sys.argv[3])
 sys.exit(0 if entry else 1)
 PY
-  then
-    die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 请人工检查后处理"
+    then
+      die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 请人工检查后处理"
+    fi
   fi
+  rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"
 fi
 mkdir -p "$pkg/raw" "$pkg/evidence/frames"
 

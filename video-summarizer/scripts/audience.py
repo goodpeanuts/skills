@@ -56,8 +56,14 @@ def http_json(url: str, referer: str, cookie_name: str, sessdata: str = "") -> d
     if sessdata:
         headers["Cookie"] = f"{cookie_name}={sessdata}"
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        hint = "（412/352 通常为风控：稍后重试或补 buvid Cookie）" if e.code in (412, 352) else ""
+        raise AudienceError(f"B 站接口 HTTP {e.code}{hint}: {url}") from e
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        raise AudienceError(f"网络请求失败: {e} ({url})") from e
 
 
 def load_sessdata() -> str:

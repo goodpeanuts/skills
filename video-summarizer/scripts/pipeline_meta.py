@@ -11,7 +11,9 @@
       [--uploader-id ID] [--upload-date D] [--account NAME]
       写 <pkg>/meta.json，并向 stdout 打印唯一一行交接 JSON（认知阶段契约）
   cookie-platform <URL>
-      查 platforms.json：URL 命中某平台 cookie.url_patterns 则打印平台键，否则空
+      查 platforms.json：URL 的 **host** 命中某平台 cookie.url_patterns 则打印平台键
+  cookie-on-failure <URL>
+      打印命中平台的 cookie.on_failure 策略（die|degrade，缺省 die）
   capability <platform> <key>
       查 platforms.json：打印平台能力位取值（danmaku/comments 等），未配置打印空
   sanitize <name>
@@ -62,11 +64,27 @@ def normalize_platform(extractor_key: str, webpage_url: str) -> str:
     端口与 www. 前缀——Cookie 是域作用域，端口不应参与键值）。"""
     plat = (extractor_key or "generic").lower()
     if plat == "generic":
-        host = (urlparse(webpage_url or "").hostname or "unknown")
-        if host.startswith("www."):
-            host = host[4:]
-        return f"generic_{hashlib.sha1(host.encode()).hexdigest()[:8]}"
+        return f"generic_{hashlib.sha1(extract_host(webpage_url).encode()).hexdigest()[:8]}"
     return plat
+
+
+def extract_host(webpage_url: str) -> str:
+    host = (urlparse(webpage_url or "").hostname or "unknown")
+    host = host.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def detect_media_kind(info: dict) -> str:
+    """判断输入是视频还是纯音频（播客等 audio-only 站点）：video|audio。"""
+    vc = info.get("vcodec")
+    if vc:
+        return "audio" if vc == "none" else "video"
+    vcs = [f.get("vcodec") for f in (info.get("formats") or [])]
+    if vcs and all(v == "none" for v in vcs):
+        return "audio"
+    return "video"
 
 
 def sanitize_component(name: str, max_len: int = 40) -> str:
@@ -143,6 +161,8 @@ def cmd_distill(info_path: str, out_path: str, sub_pref: str):
         "is_playlist": False,
         "platform": normalize_platform(info.get("extractor_key"), url),
         "extractor": info.get("extractor_key") or "",
+        "host": extract_host(url),
+        "media_kind": detect_media_kind(info),
         "id": vid,
         "title": title,
         "url": url,
@@ -174,6 +194,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "extractor": d["extractor"],
         "platform": d["platform"],
+        "host": d.get("host", ""),
+        "media_kind": d.get("media_kind", "video"),
         "id": d["id"],
         "url": d["url"],
         "title": d["title"],
@@ -202,6 +224,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "folder": folder,
         "id": d["id"],
         "platform": d["platform"],
+        "host": d.get("host", ""),
+        "media_kind": d.get("media_kind", "video"),
         "title": d["title"],
         "url": d["url"],
         "duration": d["duration"],
@@ -222,12 +246,29 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
     print(json.dumps(summary, ensure_ascii=False))
 
 
-def cmd_cookie_platform(url: str):
+def _match_cookie_platform(url: str) -> str | None:
+    """按 URL 的 host 做 glob 匹配（非子串匹配整条 URL——后者会被
+    evil.com/?ref=bilibili.com 之类伪装命中）。返回首个命中平台的键。"""
+    host = (urlparse(url or "").hostname or "").lower()
     for plat, spec in load_platforms().items():
         for pat in ((spec or {}).get("cookie") or {}).get("url_patterns") or []:
-            if fnmatch(url, pat):
-                print(plat)
-                return
+            if fnmatch(host, pat):
+                return plat
+    return None
+
+
+def cmd_cookie_platform(url: str):
+    plat = _match_cookie_platform(url)
+    if plat:
+        print(plat)
+
+
+def cmd_cookie_on_failure(url: str):
+    """打印命中平台的 cookie.on_failure 策略（die|degrade，缺省 die）。"""
+    plat = _match_cookie_platform(url)
+    if plat:
+        cfg = (load_platforms().get(plat) or {}).get("cookie") or {}
+        print(cfg.get("on_failure") or "die")
 
 
 def cmd_capability(platform: str, key: str):
@@ -264,12 +305,15 @@ def main():
     p3 = cmd.add_parser("sanitize", help="文件名消毒（单测/调试）")
     p3.add_argument("name")
 
-    p4 = cmd.add_parser("cookie-platform", help="URL 命中的 cookie 配置平台键")
+    p4 = cmd.add_parser("cookie-platform", help="URL host 命中的 cookie 配置平台键")
     p4.add_argument("url")
 
-    p5 = cmd.add_parser("capability", help="平台能力位取值")
-    p5.add_argument("platform")
-    p5.add_argument("key")
+    p5 = cmd.add_parser("cookie-on-failure", help="命中平台的 cookie 失败策略 die|degrade")
+    p5.add_argument("url")
+
+    p6 = cmd.add_parser("capability", help="平台能力位取值")
+    p6.add_argument("platform")
+    p6.add_argument("key")
 
     args = parser.parse_args()
     if args.cmd == "distill":
@@ -284,6 +328,8 @@ def main():
         print(sanitize_component(args.name))
     elif args.cmd == "cookie-platform":
         cmd_cookie_platform(args.url)
+    elif args.cmd == "cookie-on-failure":
+        cmd_cookie_on_failure(args.url)
     else:
         cmd_capability(args.platform, args.key)
 

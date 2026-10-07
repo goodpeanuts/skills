@@ -111,12 +111,15 @@ def split_audio(audio_path: str, split_points: list[float], output_dir: str) -> 
     # detection can report timestamps past the actual length, breaking ffmpeg)
     valid_split_points = [sp for sp in split_points if sp < duration - 0.5]
 
+    # chunk 容器扩展名跟随输入（AAC/m4a 输入时 -c copy 进 .mp3 容器会报错崩溃）
+    ext = os.path.splitext(audio_path)[1].lstrip(".") or "mp3"
+
     all_points = [0.0] + valid_split_points + [duration]
 
     for i in range(len(all_points) - 1):
         start = all_points[i]
         end = all_points[i + 1]
-        chunk_path = os.path.join(output_dir, f"chunk_{i:03d}.mp3")
+        chunk_path = os.path.join(output_dir, f"chunk_{i:03d}.{ext}")
 
         cmd = [
             "ffmpeg", "-y", "-i", audio_path,

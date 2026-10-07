@@ -1,19 +1,22 @@
 {
   "_meta": {
-    "version": 1,
-    "note": "平台能力位配置表（单一事实源）。新增平台加一个顶层键即可，脚本按表驱动，无需改代码。键 = 平台键（extractor_key 小写归一化；generic 提取器运行时自动消歧为 generic_<host哈希>，无需也无法在此配置）。cookie.url_patterns 用 shell glob 语义匹配原始 URL；cookie.ensure=true 的平台会在采集前自动从 Chrome 导出并校验登录态。未配置平台默认免 Cookie；手动放置 cache/_<平台键>.cookies.txt（Netscape 格式）对任何平台生效。",
-    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
+    "version": 2,
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36",
+    "note": "平台能力位配置表（单一事实源）。能力位取值是『实现枚举』而非任意字符串：cookie 由 ensure_cookies.py 消费（verify_type 目前支持 bilibili_nav）；danmaku 目前支持 bilibili_xml（pipeline_prepare.sh）；comments 支持 bilibili_api | yt_dlp_native（audience.py / pipeline_prepare.sh）。因此：复用现有实现的新平台 = 加一个数据项即可；需要新实现（如 Niconico 弹幕）= 改对应能力组件 + 加数据项。",
+    "cookie_fields": "ensure=是否自动从浏览器导出校验；url_patterns=按 URL 的 host 做 glob 匹配（非子串匹配整条 URL）；domains=Cookie 归属域列表（多域平台如 YouTube 需 youtube.com+google.com）；login_cookie/wanted=关键 Cookie 键；referer/verify_url/verify_type=登录校验；browser=导出浏览器（默认 chrome）；on_failure=ensure 失败策略 die|degrade（默认 die，degrade=告警后匿名继续，能力位自然缺席）"
   },
   "bilibili": {
     "cookie": {
       "ensure": true,
       "url_patterns": ["*bilibili.com*", "*b23.tv*"],
-      "domain": "bilibili.com",
+      "domains": ["bilibili.com"],
       "login_cookie": "SESSDATA",
       "wanted": ["SESSDATA", "buvid3", "buvid4", "bili_jct"],
       "referer": "https://www.bilibili.com/",
       "verify_url": "https://api.bilibili.com/x/web-interface/nav",
-      "verify_type": "bilibili_nav"
+      "verify_type": "bilibili_nav",
+      "browser": "chrome",
+      "on_failure": "degrade"
     },
     "danmaku": "bilibili_xml",
     "comments": "bilibili_api"

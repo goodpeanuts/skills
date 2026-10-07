@@ -9,7 +9,7 @@
 
 | 项 | 值 |
 |----|----|
-| 平台 / 视频 ID | {{PLATFORM}} / {{ID}} |
+| 平台 / 站点 / 视频 ID | {{PLATFORM}}（extractor） / {{HOST}} / {{ID}} |
 | 链接 | {{URL}} |
 | 作者 | {{UPLOADER}}（id={{UPLOADER_ID}}） |
 | 时长 / 总结时间 | {{DURATION}} / {{TIME}} |

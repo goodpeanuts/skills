@@ -224,11 +224,12 @@ ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$pkg/raw/
   || die "音频抽取失败（视频可能无音轨）: $(tail -2 "$tmpdir/ffaudio.err" | tr '\n' ' ')"
 audio_file=$(ls "$pkg"/raw/audio.* 2>/dev/null | head -1 || true)
 
-# 6) 字幕: 按蒸馏结果下载选中语言（manual/ai 走 write-subs，auto 走 write-auto-subs）
+# 6) 字幕: 按蒸馏结果下载选中语言（manual/ai 走 write-subs，auto 走 write-auto-subs；
+#    B 站字幕需登录态，必须带 cookie）
 if [[ "$sel_lang" != "none" && "$sel_kind" != "None" ]]; then
   sub_flag=--write-subs; [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
   yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-    -o "$pkg/raw/subtitle" "$url" >/dev/null 2>&1 || true
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle" "$url" >/dev/null 2>&1 || true
   sub_file=$(ls "$pkg"/raw/subtitle.*.srt 2>/dev/null | head -1 || true)
   [[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle.srt" ]] && mv -f "$sub_file" "$pkg/raw/subtitle.srt"
 fi
@@ -248,7 +249,7 @@ PY
 has_danmaku=0
 if [[ "$platform" == "bilibili" ]]; then
   yt-dlp --no-playlist --skip-download --write-subs --sub-lang danmaku \
-    -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
   [[ -f "$pkg/evidence/danmaku.danmaku.xml" ]] && mv -f "$pkg/evidence/danmaku.danmaku.xml" "$pkg/evidence/danmaku.xml"
   [[ -f "$pkg/evidence/danmaku.xml" ]] && has_danmaku=1
 fi
@@ -266,7 +267,7 @@ else
   ea=()
   [[ "$platform" == "youtube" ]] && ea=(--extractor-args "youtube:max_comments=60,15,5,10")
   yt-dlp --no-playlist --skip-download --write-comments --write-info-json ${ea[@]+"${ea[@]}"} \
-    -o "$pkg/evidence/comments" "$url" >/dev/null 2>&1 || true
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments" "$url" >/dev/null 2>&1 || true
   if [[ -f "$pkg/evidence/comments.info.json" ]]; then
     uargs=()
     [[ -n "$uploader" ]] && uargs+=(--uploader "$uploader")

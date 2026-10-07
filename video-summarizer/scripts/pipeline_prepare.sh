@@ -59,6 +59,7 @@ url=$1; shift || true
 force=0; [[ "${1:-}" == "--force" ]] && force=1
 
 is_bili=0; [[ "$url" =~ (bilibili\.com|b23\.tv) ]] && is_bili=1
+cookie_args=()
 vid=""
 if (( is_bili )); then
   vid=$(python3 -c "import re,sys; m=re.search(r'(BV[0-9A-Za-z]{10})', sys.argv[1]); print(m.group(1) if m else '')" "$url")
@@ -74,7 +75,6 @@ if (( is_bili && ! force )) && [[ -f "$REGISTRY" ]] && \
 fi
 
 # Cookie（B 站专用）
-cookie_args=()
 if (( is_bili )); then
   python3 "$META" ensure-cookies --url "$url" | tail -1
   cookie_args=(--cookies cache/_bilibili.cookies.txt)
@@ -82,11 +82,12 @@ fi
 
 # 元信息
 info=()
-while IFS= read -r line; do info+=("$line"); done < <(yt-dlp "${cookie_args[@]}" --print "%(id)s" --print "%(title)s" --print "%(duration)s" "$url")
+while IFS= read -r line; do info+=("$line"); done < <(yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --print "%(id)s" --print "%(title)s" --print "%(duration)s" "$url")
 [[ ${#info[@]} -eq 3 ]] || { echo "ERROR: 获取视频元信息失败" >&2; exit 1; }
 vid_generic=${vid:-${info[0]}}
 title=${info[1]}
 dur=${info[2]%.*}
+[[ "$dur" == "NA" || -z "$dur" ]] && dur=0
 [[ "$vid_generic" == "NA" || -z "$vid_generic" ]] && vid_generic="unknown_$RANDOM"
 
 safe=$(python3 -c "import re,sys; print(re.sub(r'[\\\\/:*?\"<>|]', '_', sys.argv[1])[:40].strip())" "$title")
@@ -95,10 +96,10 @@ pkg="archive/$ym/${vid_generic}_${safe}"
 mkdir -p "$pkg/evidence/frames/auto" "$pkg/evidence/frames/agent"
 
 # 视频 + 音频
-yt-dlp "${cookie_args[@]}" \
+yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} \
   -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best" \
   --merge-output-format mp4 -o "$pkg/video.%(ext)s" "$url" >/dev/null
-yt-dlp "${cookie_args[@]}" -x --audio-format mp3 -o "$pkg/audio.%(ext)s" "$url" >/dev/null
+yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} -x --audio-format mp3 -o "$pkg/audio.%(ext)s" "$url" >/dev/null
 
 # 字幕: B 站探测选优 / 其他平台通用链路
 subtitle_lang="none"
@@ -107,17 +108,17 @@ if (( is_bili )); then
   echo "字幕探测: $probe" >&2
   subtitle_lang=$(python3 -c "import json,sys; print(json.load(sys.stdin)['best'])" <<<"$probe")
   if [[ "$subtitle_lang" != "none" ]]; then
-    yt-dlp "${cookie_args[@]}" --skip-download --write-subs --sub-lang "$subtitle_lang" \
+    yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang "$subtitle_lang" \
       --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null
   fi
   # 弹幕（证据原始件）
-  yt-dlp "${cookie_args[@]}" --skip-download --write-subs --sub-lang danmaku \
+  yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang danmaku \
     -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
   [[ -f "$pkg/evidence/danmaku.danmaku.xml" ]] && mv "$pkg/evidence/danmaku.danmaku.xml" "$pkg/evidence/danmaku.xml"
 else
-  yt-dlp "${cookie_args[@]}" --skip-download --write-subs --sub-lang "zh-Hans,zh-Hant,zh,en" \
+  yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang "zh-Hans,zh-Hant,zh,en" \
     --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null 2>&1 || \
-  yt-dlp "${cookie_args[@]}" --skip-download --write-auto-subs --sub-lang "zh,en" \
+  yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-auto-subs --sub-lang "zh,en" \
     --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null 2>&1 || true
 fi
 sub_file=$(ls "$pkg"/subtitle.*.srt 2>/dev/null | head -1 || true)
@@ -129,7 +130,7 @@ if [[ -f "$pkg/subtitle.srt" ]]; then
 fi
 
 # 章节 + 机械抽帧
-yt-dlp "${cookie_args[@]}" --print "%(chapters)j" "$url" > "$pkg/evidence/chapters.json" 2>/dev/null || echo "null" > "$pkg/evidence/chapters.json"
+yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --print "%(chapters)j" "$url" > "$pkg/evidence/chapters.json" 2>/dev/null || echo "null" > "$pkg/evidence/chapters.json"
 frames_json=$(bash "$FRAMES" "$pkg/video.mp4" "$pkg/evidence/frames/auto" --max 12 --chapters "$pkg/evidence/chapters.json")
 echo "抽帧: $frames_json" >&2
 

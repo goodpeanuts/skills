@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "2b8ec9b2-bdeb-4c0e-bdd5-7900d28b527e",
+  "path": "video-summarizer",
+  "path_key": "video-summarizer",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/liang121/video-summarizer/tree/main/skills/video-summarizer",
+    "subpath": "skills/video-summarizer",
+    "branch": "main"
+  }
+}

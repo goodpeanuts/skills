@@ -6,9 +6,10 @@
 #   pipeline_prepare.sh finish --id ID --title T --folder F --duration D \
 #        [--subtitle-lang L] [--platform P]      认知阶段完成后回写 registry
 #
-# 机械阶段产出: archive/YYYY-MM/<ID_标题>/{video.mp4,audio.mp3,subtitle.srt,
-#   evidence/{audience.json,comments.json,danmaku.xml,chapters.json(中间件,不追踪),
-#   frames/auto/*.jpg,frames/agent/}}；stdout 末行输出 JSON 摘要供 Agent 消费。
+# 机械阶段产出: archive/YYYY-MM/<ID_标题>/{summary.md,evidence.md(认知阶段写),
+#   raw/{video.mp4,audio.mp3,subtitle.srt,danmaku.xml,comments.json,chapters.json,
+#   audience.json,frames/*.jpg}}；顶层只留两个人读交付物，素材全在 raw/。
+# stdout 末行输出 JSON 摘要供 Agent 消费。
 set -euo pipefail
 
 SKILL_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -93,13 +94,13 @@ dur=${info[2]%.*}
 safe=$(python3 -c "import re,sys; print(re.sub(r'[\\\\/:*?\"<>|]', '_', sys.argv[1])[:40].strip())" "$title")
 ym=$(date +%Y-%m)
 pkg="archive/$ym/${vid_generic}_${safe}"
-mkdir -p "$pkg/evidence/frames/auto" "$pkg/evidence/frames/agent"
+mkdir -p "$pkg/raw/frames"
 
 # 视频 + 音频
 yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} \
   -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best" \
-  --merge-output-format mp4 -o "$pkg/video.%(ext)s" "$url" >/dev/null
-yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} -x --audio-format mp3 -o "$pkg/audio.%(ext)s" "$url" >/dev/null
+  --merge-output-format mp4 -o "$pkg/raw/video.%(ext)s" "$url" >/dev/null
+yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} -x --audio-format mp3 -o "$pkg/raw/audio.%(ext)s" "$url" >/dev/null
 
 # 字幕: B 站探测选优 / 其他平台通用链路
 subtitle_lang="none"
@@ -109,35 +110,35 @@ if (( is_bili )); then
   subtitle_lang=$(python3 -c "import json,sys; print(json.load(sys.stdin)['best'])" <<<"$probe")
   if [[ "$subtitle_lang" != "none" ]]; then
     yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang "$subtitle_lang" \
-      --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null
+      --convert-subs srt -o "$pkg/raw/subtitle" "$url" >/dev/null
   fi
   # 弹幕（证据原始件）
   yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang danmaku \
-    -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
-  [[ -f "$pkg/evidence/danmaku.danmaku.xml" ]] && mv "$pkg/evidence/danmaku.danmaku.xml" "$pkg/evidence/danmaku.xml"
+    -o "$pkg/raw/danmaku" "$url" >/dev/null 2>&1 || true
+  [[ -f "$pkg/raw/danmaku.danmaku.xml" ]] && mv "$pkg/raw/danmaku.danmaku.xml" "$pkg/raw/danmaku.xml"
 else
   yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-subs --sub-lang "zh-Hans,zh-Hant,zh,en" \
     --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null 2>&1 || \
   yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --skip-download --write-auto-subs --sub-lang "zh,en" \
-    --convert-subs srt -o "$pkg/subtitle" "$url" >/dev/null 2>&1 || true
+    --convert-subs srt -o "$pkg/raw/subtitle" "$url" >/dev/null 2>&1 || true
 fi
-sub_file=$(ls "$pkg"/subtitle.*.srt 2>/dev/null | head -1 || true)
-[[ -n "$sub_file" ]] && mv "$sub_file" "$pkg/subtitle.srt"
+sub_file=$(ls "$pkg"/raw/subtitle.*.srt 2>/dev/null | head -1 || true)
+[[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle.srt" ]] && mv "$sub_file" "$pkg/raw/subtitle.srt"
 
 # 章节 + 机械抽帧
-yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --print "%(chapters)j" "$url" > "$pkg/evidence/chapters.json" 2>/dev/null || echo "null" > "$pkg/evidence/chapters.json"
-frames_json=$(bash "$FRAMES" "$pkg/video.mp4" "$pkg/evidence/frames/auto" --max 12 --chapters "$pkg/evidence/chapters.json")
+yt-dlp ${cookie_args[@]+"${cookie_args[@]}"} --print "%(chapters)j" "$url" > "$pkg/raw/chapters.json" 2>/dev/null || echo "null" > "$pkg/raw/chapters.json"
+frames_json=$(bash "$FRAMES" "$pkg/raw/video.mp4" "$pkg/raw/frames" --max 12 --chapters "$pkg/raw/chapters.json")
 echo "抽帧: $frames_json" >&2
 
 # 观众反馈（B 站专用）
 audience_json='{}'
 if (( is_bili )); then
   audience_json=$(python3 "$META" audience --url "$url" \
-    --danmaku-xml "$pkg/evidence/danmaku.xml" --out-dir "$pkg/evidence" --duration "$dur" | tail -1)
+    --danmaku-xml "$pkg/raw/danmaku.xml" --out-dir "$pkg/raw" --duration "$dur" | tail -1)
   echo "观众反馈: $audience_json" >&2
 fi
 
-needs_whisper=0; [[ ! -f "$pkg/subtitle.srt" ]] && needs_whisper=1
+needs_whisper=0; [[ ! -f "$pkg/raw/subtitle.srt" ]] && needs_whisper=1
 platform="other"; (( is_bili )) && platform="bilibili"
 
 # 摘要（stdout 末行, Agent 消费）

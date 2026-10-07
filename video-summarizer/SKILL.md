@@ -29,15 +29,14 @@ archive/
 ├── registry.json                     # 已总结视频登记簿（BV/视频ID 主键）← 追踪
 └── 2026-10/
     └── BV14tTj6CEuM_0成本搭建网络小店/
-        ├── video.mp4 / audio.mp3          ← gitignore
-        ├── subtitle.srt                    ← 追踪（字幕源文本）
-        ├── summary.md                     ← 追踪（纯用户向，零证据痕迹）
-        ├── evidence.md                    ← 追踪（证据底稿，文本溯源）
-        └── evidence/
-            ├── audience.json              ← 追踪（弹幕+评论结构化底账）
-            ├── chapters.json              ← gitignore（抽帧/模板的运行时中间件）
-            ├── danmaku.xml / comments.json ← gitignore（原始数据，--force 可重采）
-            └── frames/{auto,agent}/*.jpg   ← gitignore
+        ├── summary.md                ← 追踪（纯用户向总结，零证据痕迹）
+        ├── evidence.md               ← 追踪（人读证据底稿，文本溯源）
+        └── raw/                      ← 素材区
+            ├── audience.json          ← 追踪（弹幕+评论机读底账）
+            ├── subtitle.srt          ← gitignore（字幕源，--force 重采可得）
+            ├── danmaku.xml / comments.json / chapters.json ← gitignore
+            ├── video.mp4 / audio.mp3 ← gitignore
+            └── frames/*.jpg          ← gitignore（抽帧统一存放，不分 auto/agent）
 cache/
 └── cookies.json                       ← 登录凭证，gitignore（平台命名空间 JSON）
 ```
@@ -69,16 +68,16 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force # 强制重采
 
 按摘要 JSON 依次：
 
-1. **读帧**：逐张查看 `evidence/frames/auto/*.jpg`（Read 图片），把画面事实记录下来（界面路径、数据、演示效果——口播没讲的信息）。
+1. **读帧**：逐张查看 `raw/frames/*.jpg`（Read 图片），把画面事实记录下来（界面路径、数据、演示效果——口播没讲的信息）。
 2. **按需补帧**（无上限）：弹幕峰值时刻（audience.json `danmaku.peaks[].t`）、字幕提到"看这个界面"但机械帧未覆盖、信息密集段无视觉佐证时：
    ```bash
-   bash "$SKILL_DIR/scripts/extract_frames.sh" "<folder>/video.mp4" "<folder>/evidence/frames/agent" --at "65,130.5,208"
+   bash "$SKILL_DIR/scripts/extract_frames.sh" "<folder>/raw/video.mp4" "<folder>/raw/frames" --at "65,130.5,208"
    ```
 3. **whisper 兜底**（`needs_whisper: 1` 时）：
    ```bash
    uv run "$SKILL_DIR/scripts/parallel_transcribe.py" --input "<folder>/audio.mp3" \
      --output-dir "<folder>" --model small --language auto
-   mv <folder>/subtitle.vtt <folder>/subtitle.srt 2>/dev/null || true
+   mv <folder>/subtitle.vtt <folder>/raw/subtitle.srt 2>/dev/null || true
    ```
 4. **生成 summary.md**：按 `$SKILL_DIR/reference/summary-prompt.md` 填充占位符（TITLE/PLATFORM/URL/DURATION/LANGUAGE/DOWNLOAD_TIME/CHAPTERS/TRANSCRIPT/FRAMES=你的读帧观察/AUDIENCE=audience.json 消化版）。遵守证据法则：正文零证据痕迹。
 5. **生成 evidence.md**：按 `$SKILL_DIR/reference/evidence-template.md`，承接全部溯源细节（含 [UP] 标注、峰值表、帧观察表、原始文件清单）。
@@ -123,10 +122,11 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish \
 cache/
 /cookies.txt
 .venv/
-# 运行时原料与原始证据（消化版 audience.json/evidence.md 保留追踪）
-archive/**/evidence/danmaku.xml
-archive/**/evidence/comments.json
-archive/**/evidence/chapters.json
+# raw/ 素材区（人读产物与 raw/audience.json 底账保留追踪）
+archive/**/raw/danmaku.xml
+archive/**/raw/comments.json
+archive/**/raw/chapters.json
+archive/**/raw/subtitle.srt
 # 本地研究/测试目录
 downloads/
 research/
@@ -144,7 +144,7 @@ __pycache__/
 - **Cookie 导出失败**（无 Chrome/未登录）：提示用户登录或改扫码；降级为无登录（仍可拿 CC 字幕）。
 - **HuggingFace 限速**（whisper 模型下载失败）：从 ModelScope 手动下载模型放到 `cache/whisper-models/`，改用本地模型转写：
   ```bash
-  uv run "$SKILL_DIR/scripts/transcribe_local.py" <audio.mp3> <folder> [cache/whisper-models/faster-whisper-small]
+  uv run "$SKILL_DIR/scripts/transcribe_local.py" <folder>/raw/audio.mp3 <folder>/raw [cache/whisper-models/faster-whisper-small]
   ```
 - **视频过长（>1 小时）**：询问用户是否只处理部分；whisper 分片转写自动处理。
 - **风控（HTTP 412/352）**：稍后重试或补充 buvid Cookie。

@@ -81,15 +81,28 @@ fi
 # 4. faster-whisper (managed by uv)
 # ==========================================
 echo ""
-echo "[4/5] Checking faster-whisper..."
+echo "[4/6] Checking faster-whisper..."
 echo "  faster-whisper will be automatically managed by uv"
 echo "  (installed on-demand when running transcription scripts)"
 
 # ==========================================
-# 5. Python (check version)
+# 5. JS runtime (yt-dlp YouTube 等平台需要，deno 为默认支持项)
 # ==========================================
 echo ""
-echo "[5/5] Checking Python..."
+echo "[5/6] Checking JS runtime (deno)..."
+if ! command -v deno &> /dev/null; then
+    echo "  Warning: deno not found. YouTube extraction requires a JS runtime."
+    echo "    Install:  brew install deno   (or pass --js-runtimes node to yt-dlp)"
+    echo "    Other platforms work without it."
+else
+    echo "  deno: $(deno --version 2>&1 | head -1)"
+fi
+
+# ==========================================
+# 6. Python (check version)
+# ==========================================
+echo ""
+echo "[6/6] Checking Python..."
 if command -v python3 &> /dev/null; then
     PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
     echo "  Python: $PYTHON_VERSION"

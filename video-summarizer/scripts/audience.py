@@ -163,7 +163,12 @@ def cmd_generic(info_json: str, out_dir: str, duration: float,
             return True
         return bool(uploader and c.get("author") == uploader)
 
-    tops = [c for c in comments if not c.get("parent")]
+    # yt-dlp 顶层评论的 parent 为 "root"（YouTube）或 None；其余为父评论 id
+    def is_top(c: dict) -> bool:
+        p = c.get("parent")
+        return not p or p == "root"
+
+    tops = [c for c in comments if is_top(c)]
     tops.sort(key=lambda c: c.get("like_count") or 0, reverse=True)
     top = []
     for c in tops[:TOP_N]:

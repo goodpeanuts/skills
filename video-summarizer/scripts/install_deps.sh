@@ -11,7 +11,7 @@ echo ""
 # ==========================================
 # 1. uv (Python package manager)
 # ==========================================
-echo "[1/5] Checking uv..."
+echo "[1/6] Checking uv..."
 if ! command -v uv &> /dev/null; then
     echo "  Installing uv..."
     if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -32,7 +32,7 @@ fi
 # 2. ffmpeg (required for audio processing)
 # ==========================================
 echo ""
-echo "[2/5] Checking ffmpeg..."
+echo "[2/6] Checking ffmpeg..."
 if ! command -v ffmpeg &> /dev/null; then
     echo "  Installing ffmpeg..."
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -68,7 +68,7 @@ fi
 # 3. yt-dlp (required for video downloading)
 # ==========================================
 echo ""
-echo "[3/5] Checking yt-dlp..."
+echo "[3/6] Checking yt-dlp..."
 if ! command -v yt-dlp &> /dev/null; then
     echo "  Installing yt-dlp with uv..."
     uvx --from yt-dlp yt-dlp --version > /dev/null 2>&1 || uv tool install yt-dlp
@@ -131,6 +131,7 @@ echo "  - uv: $(uv --version 2>&1)"
 echo "  - ffmpeg: $(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f3)"
 echo "  - yt-dlp: $(yt-dlp --version 2>&1 || echo 'will be installed on first use')"
 echo "  - faster-whisper: managed by uv (auto-installed)"
+echo "  - deno: $(deno --version 2>&1 | head -1 || echo 'missing (YouTube only; brew install deno)')"
 echo "  - Python: $PYTHON_VERSION"
 echo ""
 echo "You can now use the video-summarizer skill!"

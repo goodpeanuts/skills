@@ -5,11 +5,14 @@
 #     "faster-whisper",
 # ]
 # ///
-"""
-Parallel audio transcription using faster-whisper with silence-based segmentation.
+"""Parallel audio transcription using faster-whisper with silence-based segmentation.
 
 Usage:
-    uv run parallel_transcribe.py --input audio.mp3 --output-dir ./output --model small
+    uv run parallel_transcribe.py --input audio.mp3 --output-dir ./raw --model small
+    uv run parallel_transcribe.py --input audio.mp3 --output-dir ./raw \
+        --model-path ./cache/whisper-models/faster-whisper-small   # 本地模型目录（HF 限速时）
+
+Output: <output-dir>/subtitle.srt（SRT 格式，含时间戳）。
 """
 
 import argparse
@@ -20,18 +23,15 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from pathlib import Path
 
 
 def check_dependencies():
     """Check required system dependencies (ffmpeg)."""
-    # Check ffmpeg
     if not shutil.which("ffmpeg"):
         print("Error: ffmpeg not found. Please install ffmpeg first.", file=sys.stderr)
         print("  macOS: brew install ffmpeg", file=sys.stderr)
         print("  Ubuntu: sudo apt install ffmpeg", file=sys.stderr)
         sys.exit(1)
-
     if not shutil.which("ffprobe"):
         print("Error: ffprobe not found. Please install ffmpeg first.", file=sys.stderr)
         sys.exit(1)
@@ -50,10 +50,8 @@ def get_audio_duration(audio_path: str) -> float:
 
 
 def detect_silence(audio_path: str, noise_db: int = -40, min_duration: float = 0.5) -> list[float]:
-    """
-    Detect silence points in audio using ffmpeg silencedetect.
-    Returns list of silence end timestamps (good split points).
-    """
+    """Detect silence points in audio using ffmpeg silencedetect.
+    Returns list of silence end timestamps (good split points)."""
     cmd = [
         "ffmpeg", "-i", audio_path,
         "-af", f"silencedetect=noise={noise_db}dB:d={min_duration}",
@@ -67,7 +65,6 @@ def detect_silence(audio_path: str, noise_db: int = -40, min_duration: float = 0
             match = re.search(r'silence_end:\s*([\d.]+)', line)
             if match:
                 silence_ends.append(float(match.group(1)))
-
     return silence_ends
 
 
@@ -78,10 +75,7 @@ def find_split_points(
     min_segment: float = 10.0,
     max_segment: float = 45.0
 ) -> list[float]:
-    """
-    Find optimal split points based on silence detection.
-    Returns list of split timestamps.
-    """
+    """Find optimal split points based on silence detection."""
     if duration <= max_segment:
         return []
 
@@ -108,15 +102,13 @@ def find_split_points(
 
 
 def split_audio(audio_path: str, split_points: list[float], output_dir: str) -> list[tuple[str, float]]:
-    """
-    Split audio file at specified points.
-    Returns list of (chunk_path, start_time) tuples.
-    """
+    """Split audio file at specified points.
+    Returns list of (chunk_path, start_time) tuples."""
     chunks = []
     duration = get_audio_duration(audio_path)
 
-    # Filter out split points that are too close to or exceed the audio duration
-    # This prevents ffmpeg errors when silence detection reports timestamps beyond actual length
+    # Filter out split points too close to or beyond the audio end (silence
+    # detection can report timestamps past the actual length, breaking ffmpeg)
     valid_split_points = [sp for sp in split_points if sp < duration - 0.5]
 
     all_points = [0.0] + valid_split_points + [duration]
@@ -140,21 +132,16 @@ def split_audio(audio_path: str, split_points: list[float], output_dir: str) -> 
 
 
 def transcribe_chunk(args: tuple) -> tuple[int, list[dict], float]:
-    """
-    Transcribe a single audio chunk using faster-whisper.
-    Worker function for parallel processing.
+    """Transcribe a single audio chunk. Worker function for parallel processing.
 
-    Args:
-        args: (chunk_index, chunk_path, start_time, model_name, language)
-
-    Returns:
-        (chunk_index, segments, start_time)
+    Args: (chunk_index, chunk_path, start_time, model, language)
+    Returns: (chunk_index, segments, start_time)
     """
-    chunk_idx, chunk_path, start_time, model_name, language = args
+    chunk_idx, chunk_path, start_time, model_name, model_path, language = args
 
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(model_name, device="auto", compute_type="auto")
+    model = WhisperModel(model_path or model_name, device="auto", compute_type="auto")
 
     lang = None if language == "auto" else language
     segments, info = model.transcribe(
@@ -164,31 +151,27 @@ def transcribe_chunk(args: tuple) -> tuple[int, list[dict], float]:
         vad_filter=True
     )
 
-    segment_list = []
-    for seg in segments:
-        segment_list.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text.strip()
-        })
-
+    segment_list = [
+        {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
+        for seg in segments
+    ]
     return chunk_idx, segment_list, start_time
 
 
-def format_timestamp(seconds: float) -> str:
-    """Convert seconds to VTT timestamp format (HH:MM:SS.mmm)."""
+def format_srt_timestamp(seconds: float) -> str:
+    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm)."""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
-    secs = seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    if millis == 1000:  # 浮点进位边界
+        return format_srt_timestamp(seconds + 0.001)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
 def merge_segments(results: dict[int, tuple[list[dict], float]]) -> list[dict]:
-    """
-    Merge transcription segments from all chunks with time offset applied.
-    """
+    """Merge transcription segments from all chunks with time offsets applied."""
     all_segments = []
-
     for idx in sorted(results.keys()):
         segments, start_offset = results[idx]
         for seg in segments:
@@ -197,69 +180,55 @@ def merge_segments(results: dict[int, tuple[list[dict], float]]) -> list[dict]:
                 "end": seg["end"] + start_offset,
                 "text": seg["text"]
             })
-
     return all_segments
 
 
-def write_vtt(segments: list[dict], output_path: str):
-    """Write segments to VTT format."""
+def write_srt(segments: list[dict], output_path: str):
+    """Write segments to SRT format."""
     with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("WEBVTT\n\n")
         for i, seg in enumerate(segments, 1):
-            start = format_timestamp(seg["start"])
-            end = format_timestamp(seg["end"])
-            f.write(f"{start} --> {end}\n")
+            f.write(f"{i}\n")
+            f.write(f"{format_srt_timestamp(seg['start'])} --> {format_srt_timestamp(seg['end'])}\n")
             f.write(f"{seg['text']}\n\n")
 
 
-def write_transcript(segments: list[dict], output_path: str):
-    """Write plain text transcript without timestamps."""
-    with open(output_path, 'w', encoding='utf-8') as f:
-        for seg in segments:
-            f.write(f"{seg['text']}\n")
-
-
-def transcribe_direct(audio_path: str, model_name: str, language: str) -> list[dict]:
+def transcribe_direct(audio_path: str, model_name: str, model_path: str, language: str) -> list[dict]:
     """Transcribe audio directly without splitting (for short files)."""
     from faster_whisper import WhisperModel
 
-    print(f"Loading model: {model_name}")
-    model = WhisperModel(model_name, device="auto", compute_type="auto")
+    print(f"Loading model: {model_path or model_name}")
+    model = WhisperModel(model_path or model_name, device="auto", compute_type="auto")
 
     lang = None if language == "auto" else language
     print("Transcribing...")
     segments, info = model.transcribe(
         audio_path,
         language=lang,
+        condition_on_previous_text=False,
         vad_filter=True
     )
 
-    segment_list = []
-    for seg in segments:
-        segment_list.append({
-            "start": seg.start,
-            "end": seg.end,
-            "text": seg.text.strip()
-        })
-
-    return segment_list
+    return [
+        {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
+        for seg in segments
+    ]
 
 
 def transcribe_parallel(
     audio_path: str,
     model_name: str,
+    model_path: str,
     language: str,
     workers: int,
     min_segment_duration: float
 ) -> list[dict]:
     """Transcribe audio with parallel processing."""
-
     duration = get_audio_duration(audio_path)
     print(f"Audio duration: {duration:.1f}s")
 
     if duration < min_segment_duration:
         print("Audio is short, transcribing directly...")
-        return transcribe_direct(audio_path, model_name, language)
+        return transcribe_direct(audio_path, model_name, model_path, language)
 
     print("Detecting silence points...")
     silence_points = detect_silence(audio_path)
@@ -275,7 +244,7 @@ def transcribe_parallel(
         print(f"Transcribing {len(chunks)} chunks with {workers} workers...")
 
         tasks = [
-            (idx, path, start, model_name, language)
+            (idx, path, start, model_name, model_path, language)
             for idx, (path, start) in enumerate(chunks)
         ]
 
@@ -310,12 +279,16 @@ def main():
     )
     parser.add_argument(
         "--output-dir", "-o", required=True,
-        help="Output directory for subtitle and transcript files"
+        help="Output directory for subtitle.srt"
     )
     parser.add_argument(
         "--model", "-m", default="small",
         choices=["tiny", "base", "small", "medium", "large-v3"],
-        help="Whisper model to use (default: small)"
+        help="Whisper model name (default: small)"
+    )
+    parser.add_argument(
+        "--model-path", default="",
+        help="Local model directory (overrides --model; e.g. cache/whisper-models/faster-whisper-small)"
     )
     parser.add_argument(
         "--language", "-l", default="auto",
@@ -341,8 +314,8 @@ def main():
     workers = args.workers or max(1, os.cpu_count() // 2)
 
     print(f"Input: {args.input}")
-    print(f"Output: {args.output_dir}")
-    print(f"Model: {args.model}")
+    print(f"Output: {os.path.join(args.output_dir, 'subtitle.srt')}")
+    print(f"Model: {args.model_path or args.model}")
     print(f"Language: {args.language}")
     print(f"Workers: {workers}")
     print()
@@ -350,20 +323,17 @@ def main():
     segments = transcribe_parallel(
         args.input,
         args.model,
+        args.model_path,
         args.language,
         workers,
         args.min_segment
     )
 
-    vtt_path = os.path.join(args.output_dir, "subtitle.vtt")
-    txt_path = os.path.join(args.output_dir, "transcript.txt")
-
-    write_vtt(segments, vtt_path)
-    write_transcript(segments, txt_path)
+    srt_path = os.path.join(args.output_dir, "subtitle.srt")
+    write_srt(segments, srt_path)
 
     print()
-    print(f"Subtitle saved: {vtt_path}")
-    print(f"Transcript saved: {txt_path}")
+    print(f"Subtitle saved: {srt_path}")
     print(f"Total segments: {len(segments)}")
 
 

@@ -51,7 +51,7 @@
 
 | 文件 | Git | 说明 |
 |------|-----|------|
-| subtitle.srt / transcript.txt | 追踪 | 字幕与纯文本转写 |
+| subtitle.srt | 追踪 | 字幕源文本 |
 | evidence/audience.json | 追踪 | 弹幕+评论结构化底账 |
 | evidence/danmaku.xml | 忽略 | 弹幕原始 XML（重采可得） |
 | evidence/comments.json | 忽略 | 评论原始 JSON（重采可得） |

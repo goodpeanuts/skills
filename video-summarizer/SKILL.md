@@ -1,6 +1,6 @@
 ---
 name: video-summarizer
-description: "Two-phase video summarization pipeline: mechanical stage (script) downloads video/audio/subtitles, fetches Bilibili AI subtitles (cookie-managed, probe-and-pick CC > ai-zh > ai-en), danmaku and comments evidence, extracts key frames; cognitive stage (agent) reads frames, optionally extracts supplementary frames, writes user-facing summary.md and evidence.md. Outputs archived under archive/YYYY-MM/<ID_title>/ with a JSON registry deduplicating already-summarized videos (BV id as key). Git tracks text only (summaries, evidence digests, transcripts); media files are gitignored. Actions: summarize, 总结视频, 视频总结, 阅读版, download, transcribe, batch summarize, 批量总结. Platforms: 1800+ yt-dlp sites with Bilibili enhancement. Outputs: MP4, MP3, SRT, transcript, summary.md, evidence.md, audience.json."
+description: "Two-phase video summarization pipeline: mechanical stage (script) downloads video/audio/subtitles, fetches Bilibili AI subtitles (cookie-managed, probe-and-pick CC > ai-zh > ai-en), danmaku and comments evidence, extracts key frames; cognitive stage (agent) reads frames, optionally extracts supplementary frames, writes user-facing summary.md and evidence.md. Outputs archived under archive/YYYY-MM/<ID_title>/ with a JSON registry deduplicating already-summarized videos (BV id as key). Git tracks user-facing outputs only (summary.md, evidence.md, audience.json, subtitle.srt, registry); run-time intermediates (transcript, chapters.json, raw danmaku/comments) and media files are gitignored. Actions: summarize, 总结视频, 视频总结, 阅读版, download, transcribe, batch summarize, 批量总结. Platforms: 1800+ yt-dlp sites with Bilibili enhancement. Outputs: MP4, MP3, SRT, summary.md, evidence.md, audience.json."
 ---
 
 # Video Summarizer
@@ -30,12 +30,12 @@ archive/
 └── 2026-10/
     └── BV14tTj6CEuM_0成本搭建网络小店/
         ├── video.mp4 / audio.mp3          ← gitignore
-        ├── subtitle.srt / transcript.txt  ← 追踪
+        ├── subtitle.srt                    ← 追踪（字幕源文本）
         ├── summary.md                     ← 追踪（纯用户向，零证据痕迹）
         ├── evidence.md                    ← 追踪（证据底稿，文本溯源）
         └── evidence/
             ├── audience.json              ← 追踪（弹幕+评论结构化底账）
-            ├── chapters.json              ← 追踪（官方章节）
+            ├── chapters.json              ← gitignore（抽帧/模板的运行时中间件）
             ├── danmaku.xml / comments.json ← gitignore（原始数据，--force 可重采）
             └── frames/{auto,agent}/*.jpg   ← gitignore
 cache/
@@ -61,7 +61,7 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL"        # 已总结过�
 bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force # 强制重采
 ```
 
-脚本完成：registry 查重、Cookie 确保（`cache/cookies.json`，缺失/失效自动从 Chrome 导出）、视频/音频下载、B 站字幕探测选优（CC zh-Hans/zh > ai-zh > ai-en；其他平台通用字幕→自动字幕）、弹幕 XML、评论热评 30+楼中楼、官方章节、机械抽帧（章节边界优先+均匀补齐，≤12 帧）、`transcript.txt` 生成。
+脚本完成：registry 查重、Cookie 确保（`cache/cookies.json`，缺失/失效自动从 Chrome 导出）、视频/音频下载、B 站字幕探测选优（CC zh-Hans/zh > ai-zh > ai-en；其他平台通用字幕→自动字幕）、弹幕 XML、评论热评 30+楼中楼、官方章节、机械抽帧（章节边界优先+均匀补齐，≤12 帧）。
 
 **stdout 末行是 JSON 摘要**（folder/id/title/duration/platform/subtitle_lang/needs_whisper），据此进入认知阶段。
 
@@ -79,7 +79,6 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force # 强制重采
    uv run "$SKILL_DIR/scripts/parallel_transcribe.py" --input "<folder>/audio.mp3" \
      --output-dir "<folder>" --model small --language auto
    mv <folder>/subtitle.vtt <folder>/subtitle.srt 2>/dev/null || true
-   sed '/^[0-9]/d; /^$/d; /-->/d; /^WEBVTT/d; /^Kind:/d; /^Language:/d; /^NOTE/d' <folder>/subtitle*.vtt > <folder>/transcript.txt 2>/dev/null || true
    ```
 4. **生成 summary.md**：按 `$SKILL_DIR/reference/summary-prompt.md` 填充占位符（TITLE/PLATFORM/URL/DURATION/LANGUAGE/DOWNLOAD_TIME/CHAPTERS/TRANSCRIPT/FRAMES=你的读帧观察/AUDIENCE=audience.json 消化版）。遵守证据法则：正文零证据痕迹。
 5. **生成 evidence.md**：按 `$SKILL_DIR/reference/evidence-template.md`，承接全部溯源细节（含 [UP] 标注、峰值表、帧观察表、原始文件清单）。
@@ -124,9 +123,10 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish \
 cache/
 /cookies.txt
 .venv/
-# 原始证据（消化版 audience.json/evidence.md/chapters.json 保留追踪）
+# 运行时原料与原始证据（消化版 audience.json/evidence.md 保留追踪）
 archive/**/evidence/danmaku.xml
 archive/**/evidence/comments.json
+archive/**/evidence/chapters.json
 # 本地研究/测试目录
 downloads/
 research/

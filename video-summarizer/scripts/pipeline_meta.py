@@ -58,10 +58,11 @@ def load_platforms() -> dict:
 
 
 def normalize_platform(extractor_key: str, webpage_url: str) -> str:
-    """平台键归一化。generic 提取器按网页 host 消歧（www. 前缀不计入）。"""
+    """平台键归一化。generic 提取器按网页 host 消歧（hostname 已小写、剥离
+    端口与 www. 前缀——Cookie 是域作用域，端口不应参与键值）。"""
     plat = (extractor_key or "generic").lower()
     if plat == "generic":
-        host = (urlparse(webpage_url or "").netloc or "unknown").lower()
+        host = (urlparse(webpage_url or "").hostname or "unknown")
         if host.startswith("www."):
             host = host[4:]
         return f"generic_{hashlib.sha1(host.encode()).hexdigest()[:8]}"

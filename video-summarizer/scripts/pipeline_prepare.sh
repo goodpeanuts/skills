@@ -156,7 +156,10 @@ print(d.get("error", ""), d.get("hint", ""))' "$ensure_out")"
     cookie_file="cache/_${plat}.cookies.txt"
   fi
   cookie_args=()
-  [[ -n "$cookie_file" && -f "$cookie_file" ]] && cookie_args=(--cookies "$cookie_file")
+  if [[ -n "$cookie_file" && -f "$cookie_file" ]]; then
+    cookie_args=(--cookies "$cookie_file")
+  fi
+  return 0
 }
 
 # 单次 -J 全量元数据 + 蒸馏 + 读回全局变量。
@@ -244,7 +247,7 @@ probe_and_distill "$tmpdir/info.json"
 if [[ -z "$cookie_file" && -f "cache/_${platform}.cookies.txt" ]]; then
   cookie_file="cache/_${platform}.cookies.txt"
   cookie_args=(--cookies "$cookie_file")
-  echo "使用手动 Cookie: $cookie_file（带登录态重新探测元数据）" >&2
+  echo "使用手动 Cookie: ${cookie_file}（带登录态重新探测元数据）" >&2
   probe_and_distill "$tmpdir/info2.json"
 fi
 
@@ -289,7 +292,7 @@ entry = reg.get("videos", {}).get(sys.argv[2], {}).get(sys.argv[3])
 sys.exit(0 if entry else 1)
 PY
     then
-      die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 请人工检查后处理"
+      die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若是上次机械阶段中断残留，加 --force 重采；否则请人工检查后处理"
     fi
   fi
   rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"

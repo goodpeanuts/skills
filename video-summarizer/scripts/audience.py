@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
 """audience.py —— 观众反馈采集与消化（video-summarizer · 能力组件）
 
-子命令（两分支输出同一 audience.json schema）:
+子命令:
   bili    --url <URL> [--danmaku-xml <PATH>] --out-dir <DIR> [--duration <sec>]
+          [--part N] [--base-bvid BV] [--course-title T]
           B 站能力位: v2/reply 热评 API（ps=20 两页凑 top30、楼中楼≤2、作者回复
           标注 is_up）+ 弹幕 XML 解析（10s 窗口不重叠峰值 Top3、高频文本 Top10）
           --url 应传蒸馏后的 canonical webpage_url（含 BV 号；b23.tv 短链不含）
+          part=0（缺省，单视频形态）: audience.json = 评论+弹幕一体
+          part>0（多P形态）: 评论是 aid 级（全课程共享），课程级 audience.json
+          （无后缀，danmaku=null）一次采集、同归属复用不重发请求；逐P产物为
+          audience_NN.json（零填充，弹幕峰值/高频）。评论失败不拖累弹幕产物，
+          下一P会重试课程级采集
   generic --info-json <PATH> --out-dir <DIR> [--duration <sec>]
           通用能力位: 消化 yt-dlp --write-comments 产出的 info.json
           （YouTube 等平台原生支持；按赞数取 top30，回复按 parent 关联）
 
-输出: <out-dir>/audience.json（Git 追踪）。
-bili 分支同时落 <out-dir>/comments.info.json（原始侧账，Git 忽略）；
+输出: audience.json（Git 追踪）+ 多P形态的 audience_NN.json（Git 追踪）。
+bili 分支同时落 comments.info.json / comments_NN...（原始侧账，Git 忽略；
+多P形态该文件只在课程级首次采集时落盘）；
 generic 分支的 comments.info.json 由 pipeline 调 yt-dlp 落盘，本脚本只读。
 UA 与关键 Cookie 名从 platforms.json 读取（与 ensure_cookies.py 共享单一事实源）。
 
-schema: {"video": {..., "author": {"name","id"}}, "generated_at": ...,
+schema: 单视频 {"video": {..., "author": {"name","id"}}, "generated_at": ...,
          "danmaku": null | {...}, "comments": {"total","sampled","up_mid","top":[...]}}
+        多P课程级 {"video": {..., "scope": "course"}, ..., "danmaku": null, "comments": {...}}
+        多P逐P   {"part": N, "video": {"id": "BV..._pN", "scope": "part"},
+                  "generated_at": ..., "danmaku": {...}}
 非弹幕平台 danmaku 为 null；summary 模板的观众反馈章节据 top 内容自行判断有无信号。
 """
 
@@ -147,35 +157,103 @@ def fetch_bili_comments(bvid: str, sessdata: str) -> tuple[dict, list]:
                          "text": s["content"]["message"]} for s in subs],
         })
     meta = {"aid": aid, "up_mid": up_mid, "up_name": up_name, "title": title,
-            "total": total, "sampled": len(top)}
+            "total": total, "sampled": len(top), "duration": view.get("duration")}
     return meta, top
 
 
-def cmd_bili(url: str, danmaku_xml: str, out_dir: str, duration: float):
+def cmd_bili(url: str, danmaku_xml: str, out_dir: str, duration: float,
+             part: int, base_bvid: str, course_title: str):
     m = re.search(r"(BV[0-9A-Za-z]{10})", url)
     if not m:
         raise AudienceError(f"无法从 URL 解析 BV 号: {url}")
+    bvid = m.group(1)
     sessdata = load_sessdata()
-    meta, top = fetch_bili_comments(m.group(1), sessdata)
-    danmaku = parse_danmaku(danmaku_xml, duration)
-    audience = {
-        "video": {"id": m.group(1), "title": meta.get("title"),
-                  "author": {"name": meta["up_name"], "id": meta["up_mid"]},
-                  "duration": duration},
-        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-        "danmaku": danmaku,
-        "comments": {"total": meta["total"], "sampled": meta["sampled"],
-                     "up_mid": meta["up_mid"], "top": top},
-    }
     outdir = Path(out_dir)
     outdir.mkdir(parents=True, exist_ok=True)
-    (outdir / "audience.json").write_text(json.dumps(audience, ensure_ascii=False, indent=2) + "\n")
-    (outdir / "comments.info.json").write_text(json.dumps(
-        {"aid": meta["aid"], "total": meta["total"], "replies": top},
-        ensure_ascii=False, indent=2) + "\n")
-    print(json.dumps({"ok": True, "danmaku_total": danmaku["total"] if danmaku else 0,
-                      "comments_total": meta["total"], "comments_sampled": meta["sampled"]},
-                     ensure_ascii=False))
+    errors = []
+    result = {"ok": True}
+
+    if part > 0:
+        # 多P形态: 评论是 aid 级（全课程共享）→ 课程级 audience.json（无后缀）
+        # 一次采集，其余P检测到同归属即复用；逐P只产弹幕消化 audience_NN.json。
+        # 无后缀 = 课程级，带后缀 = 逐P（与 pipeline_prepare 的产物约定一致）
+        base = base_bvid or bvid
+        aud_path = outdir / "audience.json"
+        reuse = False
+        if aud_path.exists():
+            try:
+                prev = json.loads(aud_path.read_text())
+                reuse = (prev.get("video") or {}).get("id") == base
+            except (json.JSONDecodeError, OSError):
+                reuse = False
+        if reuse:
+            result["comments"] = "reused"
+            try:
+                prev = json.loads(aud_path.read_text())
+                result["comments_total"] = (prev.get("comments") or {}).get("total", 0)
+                result["comments_sampled"] = (prev.get("comments") or {}).get("sampled", 0)
+            except Exception:
+                pass
+        else:
+            try:
+                meta, top = fetch_bili_comments(base, sessdata)
+                audience = {
+                    "video": {"id": base, "title": course_title or meta.get("title"),
+                              "author": {"name": meta["up_name"], "id": meta["up_mid"]},
+                              "duration": meta.get("duration") or duration,
+                              "scope": "course"},
+                    "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+                    "danmaku": None,  # 多P形态: 弹幕在逐P audience_NN.json
+                    "comments": {"total": meta["total"], "sampled": meta["sampled"],
+                                 "up_mid": meta["up_mid"], "top": top},
+                }
+                (outdir / "audience.json").write_text(
+                    json.dumps(audience, ensure_ascii=False, indent=2) + "\n")
+                (outdir / "comments.info.json").write_text(json.dumps(
+                    {"aid": meta["aid"], "total": meta["total"], "replies": top},
+                    ensure_ascii=False, indent=2) + "\n")
+                result["comments"] = "fetched"
+                result["comments_total"] = meta["total"]
+                result["comments_sampled"] = meta["sampled"]
+            except AudienceError as e:
+                # 评论失败不拖累弹幕产物（下一P会重试课程级采集）
+                errors.append(f"评论: {e}")
+                result["comments"] = "failed"
+        danmaku = parse_danmaku(danmaku_xml, duration)
+        per_part = {
+            "part": part,
+            "video": {"id": f"{base}_p{part}", "scope": "part"},
+            "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "danmaku": danmaku,
+        }
+        (outdir / f"audience_{part:02d}.json").write_text(
+            json.dumps(per_part, ensure_ascii=False, indent=2) + "\n")
+        result["danmaku_total"] = danmaku["total"] if danmaku else 0
+        if errors and not danmaku:
+            raise AudienceError("; ".join(errors))
+        if errors:
+            result["warning"] = "; ".join(errors)
+    else:
+        # 单视频形态: audience.json = 评论+弹幕一体（既有 schema，保持不变）
+        meta, top = fetch_bili_comments(bvid, sessdata)
+        danmaku = parse_danmaku(danmaku_xml, duration)
+        audience = {
+            "video": {"id": bvid, "title": meta.get("title"),
+                      "author": {"name": meta["up_name"], "id": meta["up_mid"]},
+                      "duration": duration},
+            "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "danmaku": danmaku,
+            "comments": {"total": meta["total"], "sampled": meta["sampled"],
+                         "up_mid": meta["up_mid"], "top": top},
+        }
+        (outdir / "audience.json").write_text(json.dumps(audience, ensure_ascii=False, indent=2) + "\n")
+        (outdir / "comments.info.json").write_text(json.dumps(
+            {"aid": meta["aid"], "total": meta["total"], "replies": top},
+            ensure_ascii=False, indent=2) + "\n")
+        result["danmaku_total"] = danmaku["total"] if danmaku else 0
+        result["comments_total"] = meta["total"]
+        result["comments_sampled"] = meta["sampled"]
+    print(json.dumps(result, ensure_ascii=False))
 
 
 # ---------- 通用: yt-dlp --write-comments 消化 ----------
@@ -235,6 +313,10 @@ def main():
     p1.add_argument("--danmaku-xml", default="")
     p1.add_argument("--out-dir", required=True)
     p1.add_argument("--duration", type=float, default=0)
+    p1.add_argument("--part", type=int, default=0,
+                    help="分P号（>0 进入多P形态: 课程级评论一次采集+逐P弹幕文件）")
+    p1.add_argument("--base-bvid", default="", help="父BV号（多P课程归属，缺省从 URL 提取）")
+    p1.add_argument("--course-title", default="", help="课程主标题（课程级 audience.json 用）")
     p2 = cmd.add_parser("generic")
     p2.add_argument("--info-json", required=True)
     p2.add_argument("--out-dir", required=True)
@@ -244,7 +326,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.cmd == "bili":
-            cmd_bili(args.url, args.danmaku_xml, args.out_dir, args.duration)
+            cmd_bili(args.url, args.danmaku_xml, args.out_dir, args.duration,
+                     args.part, args.base_bvid, args.course_title)
         else:
             cmd_generic(args.info_json, args.out_dir, args.duration,
                         args.uploader, args.uploader_id)

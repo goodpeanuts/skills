@@ -21,6 +21,12 @@
       yt-dlp -J 无 playlist 字段（入口语义缺席），B 站经官方 view API 反查
       ugc_season 回填 distilled 的 collection。内部入口优先（已有值不覆盖）、
       全部缺席路径静默退 0（能力位自然缺席）；--payload-file 为离线注入口（单测）
+  multipage_lookup <platform> <video_id> --webpage-url <url>
+      [--distilled <file>] [--payload-file <f>]
+      多P探测 + collection 三级回填（入口 > ugc_season > 多P父BV回退）。
+      一次 view API（剥 _pN 后缀的裸 BV）同时供给: 合集归属、分P数、分P清单。
+      stdout 输出唯一一行判定 JSON，调用方据此硬停裸多P URL / 拼课程目录名 /
+      选逐P文件后缀（is_multipage / part / course.safe_dir / pages）
   sanitize <name>
       文件名消毒（单测/调试用）
 
@@ -103,10 +109,12 @@ def detect_media_kind(info: dict) -> str:
 def extract_collection(info: dict, vid: str) -> dict | None:
     """所属列表（采集时入口）：取 -J 的 playlist_id/playlist_title——合集、
     播放列表、收藏夹入口都会带上（配合 --no-playlist，字段保留入口上下文）。
-    playlist_id 与视频 ID 相同（如 B 站多 P：其"列表"就是该视频自身）不算所属列表，
-    返回 None。默认 SKIP 语义下同视频只记首次采集的入口；--force 重采后
-    finish 覆盖为最新入口。单视频 URL 入口缺席时，season_lookup 能力位平台
-    会反查归属合集回填 collection（见 collection_lookup）——入口值优先，不被覆盖。"""
+    playlist_id 与视频 ID 相同（列表就是该视频自身）不算所属列表，返回 None。
+    注意（实测 2026-10）：B 站多P视频经 -J --no-playlist 解析为单条目时，
+    playlist_* 字段全部缺席——多P的 collection 归属由 multipage_lookup 经
+    官方 view API 回填（入口 > ugc_season > 父BV 回退），不依赖本函数。
+    默认 SKIP 语义下同视频只记首次采集的入口；--force 重采后
+    finish 覆盖为最新入口。"""
     pid = info.get("playlist_id")
     if not pid or str(pid) == str(vid):
         return None
@@ -134,19 +142,100 @@ def _config_ua() -> str:
     return ((cfg.get("_meta") or {}).get("ua")) or "Mozilla/5.0"
 
 
-def fetch_season_collection(vid: str, timeout: float = 10):
-    """拉取并解析 B 站归属合集。返回 (collection, err)：err 非空 = 网络/HTTP
-    失败；err 空 collection 为 None = 视频不属于合集。"""
+def fetch_view_payload(vid: str, timeout: float = 10):
+    """拉取 B 站官方 view API 原始响应。返回 (payload, err)：
+    err 非空 = 网络/HTTP 失败；payload 仍需检查 code!=0（无效 bvid 等）。"""
     from urllib.request import Request, urlopen
     api = "https://api.bilibili.com/x/web-interface/view?" + urlencode({"bvid": vid})
     try:
         req = Request(api, headers={"User-Agent": _config_ua(),
                                     "Referer": "https://www.bilibili.com/"})
         with urlopen(req, timeout=timeout) as r:
-            payload = json.loads(r.read().decode("utf-8", "replace"))
+            return json.loads(r.read().decode("utf-8", "replace")), ""
     except Exception as e:  # 网络/风控/超时一律降级，不阻塞机械阶段
         return None, str(e)
+
+
+def fetch_season_collection(vid: str, timeout: float = 10):
+    """拉取并解析 B 站归属合集。返回 (collection, err)：err 非空 = 网络/HTTP
+    失败；err 空 collection 为 None = 视频不属于合集。"""
+    payload, err = fetch_view_payload(vid, timeout)
+    if err:
+        return None, err
     return parse_ugc_season(payload), ""
+
+
+def cmd_multipage_lookup(platform: str, vid: str, distilled_path: str,
+                         webpage_url: str, payload_file: str, timeout: float):
+    """多P探测 + collection 三级回填（season_lookup 能力位 · bilibili 实现）。
+    一次官方 view API（用剥掉 _pN 后缀的裸 BV）同时供给三件事:
+    ugc_season 合集归属、videos 分P数、pages 分P清单——修复两处历史缺口:
+    collection 反查拿 BV_pN 直接打 API 必败；裸多P URL 静默只处理 p1。
+    collection 优先级: 采集时入口（已有值不覆盖）> ugc_season > 多P回退（父BV）。
+    非 bilibili_ugc 平台 / 非 BV id: 静默缺席（is_multipage=false，不发请求）。
+    --payload-file 注入 API 响应（离线单测路径，跳过网络）。stdout 输出唯一一行
+    判定 JSON（调用方据此硬停/拼课程目录/选后缀）:
+      {is_multipage, part, explicit_p, page_count, pages, course, collection}"""
+    out = {"is_multipage": False, "part": None, "explicit_p": False,
+           "page_count": 0, "pages": [], "course": None}
+    if (load_platforms().get(platform) or {}).get("season_lookup") != "bilibili_ugc":
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    m = re.search(r"_p(\d+)$", vid)
+    part = int(m.group(1)) if m else None
+    base_vid = re.sub(r"_p\d+$", "", vid)
+    out["part"] = part
+    out["explicit_p"] = "?p=" in (webpage_url or "")
+    if not base_vid.startswith("BV"):  # view API 仅认裸 bvid（au/ep 等静默跳过）
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    if payload_file:
+        payload = json.loads(Path(payload_file).read_text())
+        err = ""
+    else:
+        payload, err = fetch_view_payload(base_vid, timeout)
+    if err:
+        print(f"警告: 多P探测/合集反查失败（collection 保持缺席）: {err}", file=sys.stderr)
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    if not isinstance(payload, dict) or payload.get("code") != 0:
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    data = payload.get("data") or {}
+    season = parse_ugc_season(payload)
+    pages = [{"p": pg.get("page"), "title": pg.get("part") or pg.get("title") or "",
+              "duration": pg.get("duration")} for pg in (data.get("pages") or [])]
+    n_pages = data.get("videos") or len(pages)
+    is_multipage = (n_pages or 0) > 1
+
+    # collection 三级: 入口优先（已有值不覆盖）> ugc_season > 多P父BV回退
+    d = json.loads(Path(distilled_path).read_text()) if distilled_path else {}
+    coll = d.get("collection")
+    coll_source = "entrance" if coll else ""
+    if coll is None:
+        coll = season
+        coll_source = "season" if coll else ""
+    if coll is None and is_multipage:
+        coll = {"id": base_vid, "title": data.get("title") or base_vid}
+        coll_source = "course"
+    if coll is not None and distilled_path:
+        dp = Path(distilled_path)
+        d["collection"] = coll
+        tmp = dp.parent / (dp.name + ".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+        tmp.replace(dp)
+    if coll_source in ("season", "course"):
+        print(f"collection 回填（{coll_source}）: {coll['title']} ({coll['id']})",
+              file=sys.stderr)
+
+    course = None
+    if is_multipage:
+        course_title = data.get("title") or base_vid
+        course = {"id": base_vid, "title": course_title,
+                  "safe_dir": f"{sanitize_component(base_vid, 60)}_{sanitize_component(course_title)}"}
+    out.update({"is_multipage": is_multipage, "page_count": n_pages or 0,
+                "pages": pages, "course": course, "collection": coll})
+    print(json.dumps(out, ensure_ascii=False))
 
 
 def cmd_collection_lookup(platform: str, vid: str, distilled_path: str,
@@ -283,8 +372,14 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
                  subtitle_lang: str, subtitle_source: str, needs_whisper: int,
                  has_danmaku: int, has_comments: int, frames_max: int,
                  frames_extracted: int, uploader_id: str, upload_date: str,
-                 account: str):
+                 account: str, part: int, is_multipage: int, course_page_count: int):
     d = json.loads(Path(distilled_path).read_text())
+    # 多P形态: meta/summary 等逐P产物带零填充后缀（meta_01.json / summary_01.md，
+    # 1-based 对齐 ?p=N）；单视频形态保持无后缀旧命名（双形态，存量归档零迁移）。
+    # 无后缀 = 课程级产物（audience.json）或单视频产物。
+    mp = bool(is_multipage) and bool(part)
+    summary_file = f"summary_{part:02d}.md" if mp else "summary.md"
+    meta_name = f"meta_{part:02d}.json" if mp else "meta.json"
     meta = {
         "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "extractor": d["extractor"],
@@ -300,8 +395,12 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "uploader": d["uploader"],
         "uploader_id": d.get("uploader_id"),
         # 所属列表：采集时入口（合集/播放列表/收藏夹）；单视频入口缺席时由
-        # season_lookup 能力位反查归属合集回填（B 站 ugc_season）
+        # season_lookup 能力位反查归属合集回填（B 站 ugc_season）；多P视频由
+        # multipage_lookup 回退回填父BV（同课程检索键）
         "collection": d.get("collection"),
+        "part": part or None,
+        "is_multipage": mp,
+        "course_page_count": course_page_count or None,
         # 认知阶段若 whisper 兜底，finish 会回写终态到这里（meta.json 为字幕来源唯一事实源）
         "subtitle": {
             "selected": subtitle_lang,
@@ -316,8 +415,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "capabilities": {"danmaku": bool(has_danmaku), "comments": bool(has_comments)},
         "account": account or None,
     }
-    # meta.json 落 raw/（与字幕/媒体同层）；finalize 自建 raw 目录，单测/手工调用无需预建
-    meta_path = Path(folder, "raw", "meta.json")
+    # meta 落 raw/（与字幕/媒体同层）；finalize 自建 raw 目录，单测/手工调用无需预建
+    meta_path = Path(folder, "raw", meta_name)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
@@ -345,6 +444,9 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "has_danmaku": has_danmaku,
         "has_comments": has_comments,
         "chapters": len(d["chapters"]),
+        "part": part or None,
+        "is_multipage": int(mp),
+        "summary_file": summary_file,
         # 认知阶段收尾闸门提醒: 认知产出后必须 finish(回写 registry)+verify(验收)
         "must_run_finish": True,
     }
@@ -406,6 +508,9 @@ def main():
     p2.add_argument("--uploader-id", default="")
     p2.add_argument("--upload-date", default="")
     p2.add_argument("--account", default="")
+    p2.add_argument("--part", type=int, default=0, help="分P号（多P形态；1-based）")
+    p2.add_argument("--is-multipage", type=int, default=0)
+    p2.add_argument("--course-page-count", type=int, default=0)
 
     p3 = cmd.add_parser("sanitize", help="文件名消毒（单测/调试）")
     p3.add_argument("name")
@@ -427,6 +532,15 @@ def main():
     p7.add_argument("--payload-file", default="", help="注入 API 响应 JSON（离线单测）")
     p7.add_argument("--timeout", type=float, default=10)
 
+    p8 = cmd.add_parser("multipage_lookup",
+                        help="多P探测 + collection 三级回填（入口>ugc_season>父BV）")
+    p8.add_argument("platform")
+    p8.add_argument("video_id")
+    p8.add_argument("--distilled", default="", help="merge 目标 distilled.json")
+    p8.add_argument("--webpage-url", default="", help="canonical URL（判 ?p= 显式分P）")
+    p8.add_argument("--payload-file", default="", help="注入 API 响应 JSON（离线单测）")
+    p8.add_argument("--timeout", type=float, default=10)
+
     args = parser.parse_args()
     if args.cmd == "distill":
         cmd_distill(args.info_json, args.out, args.sub_pref)
@@ -435,7 +549,7 @@ def main():
                      args.subtitle_lang, args.subtitle_source, args.needs_whisper,
                      args.has_danmaku, args.has_comments, args.frames_max,
                      args.frames_extracted, args.uploader_id, args.upload_date,
-                     args.account)
+                     args.account, args.part, args.is_multipage, args.course_page_count)
     elif args.cmd == "sanitize":
         print(sanitize_component(args.name))
     elif args.cmd == "cookie-platform":
@@ -447,6 +561,9 @@ def main():
     elif args.cmd == "collection_lookup":
         cmd_collection_lookup(args.platform, args.video_id, args.distilled,
                               args.payload_file, args.timeout)
+    elif args.cmd == "multipage_lookup":
+        cmd_multipage_lookup(args.platform, args.video_id, args.distilled,
+                             args.webpage_url, args.payload_file, args.timeout)
 
 
 if __name__ == "__main__":

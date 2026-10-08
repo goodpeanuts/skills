@@ -31,16 +31,18 @@ usage() { cat >&2 <<'EOF'
       机械阶段已完成但认知阶段中断时重跑 → 从 meta.json 重建交接 JSON 幂等续跑；
       --sub-pref 覆盖默认字幕语言偏好 [zh-Hans, zh, zh-Hant, 原语言, en]；
       --quality 下载档位，默认 720（总结只需 1280 宽帧 + 音轨）
-  pipeline_prepare.sh finish --folder <F> [--subtitle-lang L] [--subtitle-source S]
-      认知阶段完成后回写 registry。字段从 <F>/raw/meta.json 自动装配（要求
-      summary.md 与 raw/meta.json 均存在）；whisper 兜底后用 --subtitle-source whisper
-      覆盖，终态同步回写 raw/meta.json（meta.json 是字幕来源的唯一事实源）
+  pipeline_prepare.sh finish --folder <F> [--part N] [--subtitle-lang L] [--subtitle-source S]
+      认知阶段完成后回写 registry。字段从 <F>/raw/meta.json 自动装配（多P课程
+      目录传 --part N 定位 raw/meta_NN.json；要求对应 summary 与 meta 均存在）；
+      whisper 兜底后用 --subtitle-source whisper 覆盖，终态同步回写 meta
+      （meta 是字幕来源的唯一事实源）
   pipeline_prepare.sh verify [--folder <F>]
       交付完整性验收（认知阶段收尾必跑，防漏步骤静默出仓）:
       指定 <F> 只验该归档；缺省全仓扫描 archive/ 下所有归档目录。
-      检查项: summary.md/evidence/evidence.md/raw/meta.json 存在、registry.json
-      可解析且登记了该目录、summary 帧插图引用的帧文件真实存在、
-      无 .stale 残留、无非法时间戳（行文/mermaid 节点）。
+      双形态: 单P目录查 summary.md/meta.json；多P课程目录逐P查 summary_NN.md/
+      meta_NN.json（部分完成合法，只验已采集的P）。检查项: summary/evidence/
+      meta 存在、registry.json 可解析且登记了该目录、summary 帧插图引用的帧
+      文件真实存在、无 .stale 残留、无非法时间戳（行文/mermaid 节点）。
       全部通过打印 PASS 并 exit 0；有问题逐条列出、末行 FAIL exit 1
   pipeline_prepare.sh lookup <URL>
       只读查询（不触发 Cookie ensure、零写入，快速模式用）:
@@ -49,6 +51,12 @@ usage() { cat >&2 <<'EOF'
       快速模式取材（项目内零写入）：字幕选优与深度模式同规则；已归档则返回
       registry 命中；无字幕自动 -f bestaudio 备好音频。全部产物（含 cookie
       派生物）落在 --tmp 目录（缺省 mktemp），stdout 末行输出取材 JSON
+
+  多P视频约定: 裸多P URL（不含 ?p=）一律硬停 exit 2 并打印分P清单——是否全部
+  处理/处理哪些P由调用方向用户确认后，用 ?p=N 形式 URL 逐P驱动。多P产物落
+  同一课程目录（父BV 命名），逐P文件带零填充后缀（summary_01.md / meta_01.json
+  / video_01.mp4 …，1-based 对齐 pN）；无后缀 = 课程级产物（audience.json 评论
+  一次采集）或单视频产物
 EOF
   exit 1; }
 jget() { python3 -c 'import json,sys
@@ -74,6 +82,13 @@ entries = [
     "archive/**/evidence/comments.info.json",
     "archive/**/evidence/chapters.json",
     "archive/**/*.stale",
+    # 多P形态: 逐P产物带 _NN 后缀，忽略规则须模式化——精确名规则
+    # （如 evidence/danmaku.xml）不再命中 danmaku_01.xml，会从"忽略"翻成被追踪
+    "archive/**/raw/video_*",
+    "archive/**/raw/audio_*",
+    "archive/**/evidence/danmaku_*.xml",
+    "archive/**/evidence/comments_*.info.json",
+    "archive/**/evidence/chapters_*.json",
 ]
 text = p.read_text() if p.exists() else ""
 have = {l.strip() for l in text.splitlines()}
@@ -89,28 +104,43 @@ PY
   exit 0
 fi
 
-# ---------- finish: 回写 registry（字段从 meta.json 自动装配，带文件锁） ----------
+# ---------- finish: 回写 registry（字段从 meta 自动装配，带文件锁） ----------
 if [[ "$cmd" == "finish" ]]; then
   shift
-  folder="" slang="" ssrc=""
+  folder="" slang="" ssrc="" part=""
   while [[ $# -gt 0 ]]; do
     [[ $# -ge 2 ]] || die "finish: 参数 $1 缺少取值"
     case $1 in
       --folder) folder=$2 ;;
       --subtitle-lang) slang=$2 ;;
       --subtitle-source) ssrc=$2 ;;
-      *) die "finish: 未知参数 $1（接口: finish --folder F [--subtitle-lang L] [--subtitle-source S]）" ;;
+      --part) part=$2 ;;
+      *) die "finish: 未知参数 $1（接口: finish --folder F [--part N] [--subtitle-lang L] [--subtitle-source S]）" ;;
     esac
     shift 2
   done
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
   case "$ssrc" in ""|manual|auto|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|whisper|none（实得: $ssrc）" ;; esac
-  [[ -f "$folder/summary.md" ]] || die "finish 拒绝回写: $folder/summary.md 不存在（先完成认知阶段产出）"
-  [[ -f "$folder/raw/meta.json" ]] || die "finish 拒绝回写: $folder/raw/meta.json 不存在（机械阶段未运行）"
+  folder=${folder%/}
+  # meta 定位: 多P课程目录用 --part 定位 raw/meta_NN.json，单P用 raw/meta.json
+  meta_rel="raw/meta.json"
+  if [[ -n "$part" ]]; then
+    [[ "$part" =~ ^[0-9]+$ ]] || die "finish: --part 须为正整数（实得: $part）"
+    meta_rel="raw/meta_$(printf '%02d' "$part").json"
+  elif [[ ! -f "$folder/$meta_rel" ]] && ls "$folder"/raw/meta_*.json >/dev/null 2>&1; then
+    die "finish: $folder 是多P课程目录，请用 --part N 指定分P"
+  fi
+  [[ -f "$folder/$meta_rel" ]] || die "finish 拒绝回写: $folder/$meta_rel 不存在（机械阶段未运行）"
+  # summary 门槛按 meta 形态推导（多P: summary_NN.md；单P: summary.md）
+  sum_rel=$(python3 -c '
+import json, sys
+m = json.load(open(sys.argv[1]))
+print(("summary_%02d.md" % m["part"]) if m.get("is_multipage") and m.get("part") else "summary.md")' "$folder/$meta_rel")
+  [[ -f "$folder/$sum_rel" ]] || die "finish 拒绝回写: $folder/$sum_rel 不存在（先完成认知阶段产出）"
 
-  # 字幕终态覆盖（whisper 兜底后），同步回写 raw/meta.json 保持 meta/registry 一致
+  # 字幕终态覆盖（whisper 兜底后），同步回写 meta 保持 meta/registry 一致
   if [[ -n "$slang" || -n "$ssrc" ]]; then
-    python3 - "$folder/raw/meta.json" "$slang" "$ssrc" <<'PY'
+    python3 - "$folder/$meta_rel" "$slang" "$ssrc" <<'PY'
 import json, sys
 from pathlib import Path
 p, slang, ssrc = sys.argv[1:4]
@@ -124,13 +154,15 @@ PY
   fi
 
   mkdir -p archive
-  python3 - "$REGISTRY" "$folder" "$folder/raw/meta.json" <<'PY'
+  python3 - "$REGISTRY" "$folder" "$folder/$meta_rel" <<'PY'
 import fcntl, json, os, shutil, sys
 from datetime import datetime, timezone
 from pathlib import Path
 reg_path, folder, meta_path = sys.argv[1:4]
 folder = folder.rstrip("/")  # 容忍调用方带尾斜杠，registry 内路径保持规范
 m = json.loads(Path(meta_path).read_text())
+part = m.get("part")
+is_mp = bool(m.get("is_multipage")) and part
 entry = {
     "title": m.get("title"),
     "folder": folder,
@@ -141,10 +173,12 @@ entry = {
     "uploader": m.get("uploader"),
     "uploader_id": m.get("uploader_id"),
     "host": m.get("host") or None,
-    # 所属列表（合集/播放列表/收藏夹）：采集时入口；单视频入口缺席时由
-    # season_lookup 能力位反查归属合集回填。按 collection.id 过滤
-    # registry.videos 即可检出同列表的已总结视频
+    # 所属列表（合集/播放列表/收藏夹/多P父BV）：采集时入口；单视频入口缺席时
+    # 由 season_lookup 能力位反查回填，多P由 multipage_lookup 父BV回退。
+    # 按 collection.id 过滤 registry.videos 即可检出同列表/同课程的已总结视频
     "collection": m.get("collection"),
+    "part": part,
+    "summary_file": (f"summary_{part:02d}.md" if is_mp else "summary.md"),
     "subtitle_lang": m["subtitle"]["selected"],
     "subtitle_source": m["subtitle"]["source"],
     "summarized_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -191,6 +225,7 @@ from pathlib import Path
 
 reg_path, vfolder = sys.argv[1], (sys.argv[2] or "").rstrip("/")
 problems = []
+info_lines = []
 
 def p(folder, msg):
     problems.append(f"{folder}: {msg}")
@@ -212,60 +247,90 @@ else:
 ts = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?")
 for folder in folders:
     f = Path(folder)
-    # 2. 认知/机械产物齐全
-    for rel, what in [("summary.md", "summary.md 缺失（认知阶段未完成）"),
-                      ("evidence/evidence.md", "evidence/evidence.md 缺失（底稿未写）"),
-                      ("raw/meta.json", "raw/meta.json 缺失（机械阶段未完成或被移动）")]:
-        if not (f / rel).is_file():
-            p(folder, what)
-    # 3. registry 登记（缺 = 漏跑 finish）
-    if reg is None:
-        # 文件缺失/损坏都会走到这（损坏已单独报告）；缺失=整个流程漏了 finish
-        p(folder, "registry 不存在（finish 从未执行——查重保护完全失效）")
-    else:
-        m = None
-        if (f / "raw/meta.json").is_file():
+    # 双形态: 单P目录 = raw/meta.json；多P课程目录 = raw/meta_NN.json 若干
+    # （无后缀 = 单视频/课程级；有后缀 = 逐P产物，1-based 对齐 pN）
+    raw = f / "raw"
+    metas = []
+    if (raw / "meta.json").is_file():
+        metas.append((raw / "meta.json", "summary.md", "evidence.md"))
+    for mp in sorted(raw.glob("meta_[0-9]*.json")) if raw.is_dir() else []:
+        m_ = None
+        try:
+            m_ = json.loads(mp.read_text())
+        except json.JSONDecodeError:
+            p(folder, f"{mp.relative_to(f)} 损坏")
+        if m_ and m_.get("part"):
+            metas.append((mp, f"summary_{m_['part']:02d}.md", f"evidence_{m_['part']:02d}.md"))
+    if not metas:
+        p(folder, "raw/meta.json 缺失（机械阶段未完成或被移动）")
+
+    course_total = None
+    done_parts = 0
+    for meta_path, sum_name, ev_name in metas:
+        # 2. 认知/机械产物齐全（多P部分完成合法——只验已采集的P）
+        if not (f / sum_name).is_file():
+            p(folder, f"{sum_name} 缺失（认知阶段未完成）")
+        else:
+            done_parts += 1
+        if not (f / "evidence" / ev_name).is_file():
+            p(folder, f"evidence/{ev_name} 缺失（底稿未写）")
+        # 3. registry 登记（缺 = 漏跑 finish）
+        if reg is None:
+            # 文件缺失/损坏都会走到这（损坏已单独报告）；缺失=整个流程漏了 finish
+            p(folder, "registry 不存在（finish 从未执行——查重保护完全失效）")
+        else:
+            m = None
             try:
-                m = json.loads((f / "raw/meta.json").read_text())
+                m = json.loads(meta_path.read_text())
             except json.JSONDecodeError:
-                p(folder, "raw/meta.json 损坏")
-        if m:
-            entry = (reg.get("videos", {}).get(m.get("platform"), {})
-                     .get(m.get("id")))
-            if not entry:
-                p(folder, "registry 未登记（漏跑 finish）")
-            elif entry.get("folder") != folder:
-                p(folder, f"registry 登记目录不一致（registry: {entry.get('folder')}）")
-    # 4. summary 帧插图引用真实存在（断链回溯链保障）
-    sm = f / "summary.md"
-    if sm.is_file():
-        text = sm.read_text()
-        for alt, rel in re.findall(r"!\[(.*?)\]\((.*?)\)", text):
-            if not (f / rel).is_file():
-                p(folder, f"帧插图断链: {rel}（alt: {alt[:30]}…）")
-        # 5. 行文时间戳纪律: m:ss 只允许出现在小节标题/帧图 alt/元数据行
-        for i, line in enumerate(text.splitlines(), 1):
-            if not ts.search(line):
-                continue
-            s = line.lstrip()
-            if s.startswith("### [") or s.startswith("![") or s.startswith(">"):
-                continue
-            if "http" in line or "192.168" in line:  # URL 端口误报豁免
-                continue
-            p(folder, f"summary.md:{i} 行文时间戳（仅允许标题范围/帧图 alt）: {s[:40]}…")
-        # 6. mermaid 节点禁时间戳
-        for m_ in re.finditer(r"```mermaid\n(.*?)```", text, re.S):
-            if ts.search(m_.group(1)):
-                p(folder, "mermaid 节点含时间戳（规则 15 禁止）")
-    # 7. .stale 残留（--force 重采后认知阶段未收尾; summary 在目录根、evidence.md 在 evidence/）
+                p(folder, f"{meta_path.relative_to(f)} 损坏")
+            if m:
+                entry = (reg.get("videos", {}).get(m.get("platform"), {})
+                         .get(m.get("id")))
+                if not entry:
+                    p(folder, f"registry 未登记 {m.get('platform')}/{m.get('id')}（漏跑 finish）")
+                elif entry.get("folder") != folder:
+                    p(folder, f"registry 登记目录不一致（registry: {entry.get('folder')}）")
+        # 4/5/6. summary 帧插图、行文时间戳、mermaid 纪律（逐 summary 文件检查）
+        sm = f / sum_name
+        if sm.is_file():
+            text = sm.read_text()
+            for alt, rel in re.findall(r"!\[(.*?)\]\((.*?)\)", text):
+                if not (f / rel).is_file():
+                    p(folder, f"帧插图断链: {rel}（alt: {alt[:30]}…）")
+            for i, line in enumerate(text.splitlines(), 1):
+                if not ts.search(line):
+                    continue
+                s = line.lstrip()
+                if s.startswith("### [") or s.startswith("![") or s.startswith(">"):
+                    continue
+                if "http" in line or "192.168" in line:  # URL 端口误报豁免
+                    continue
+                p(folder, f"{sum_name}:{i} 行文时间戳（仅允许标题范围/帧图 alt）: {s[:40]}…")
+            for m_ in re.finditer(r"```mermaid\n(.*?)```", text, re.S):
+                if ts.search(m_.group(1)):
+                    p(folder, f"{sum_name} mermaid 节点含时间戳（规则 15 禁止）")
+        # 课程完成度信息（course_page_count 由 finalize 从 multipage 探测写入）
+        try:
+            m = json.loads(meta_path.read_text())
+        except Exception:
+            m = {}
+        if m.get("course_page_count"):
+            course_total = max(course_total or 0, m["course_page_count"])
+    # 7. .stale 残留（--force 重采后认知阶段未收尾; 后缀变体一并覆盖）
     for st in list(f.glob("*.stale")) + list((f / "evidence").glob("*.stale")):
         p(folder, f".stale 残留: {st.relative_to(f)}（重采后未完成新认知产物）")
+    if course_total and len(metas) > 1:
+        info_lines.append(f"信息: {folder}: 课程 {done_parts}/{course_total} P 已总结"
+                          f"（部分完成合法）")
 
 if problems:
     print("FAIL")
     for x in problems:
         print(f"  ✗ {x}")
     sys.exit(1)
+for line in info_lines:
+    print(line)
 scope = vfolder or "全仓 archive/"
 print(f"PASS: {scope} 交付完整性验收通过")
 PY
@@ -374,6 +439,33 @@ if e:
 PY
 }
 
+# 多P探测 + collection 三级回填（season_lookup 能力位）。$1=multipage.json 落盘路径。
+# 子命令对非 bilibili_ugc 平台/非 BV id 静默缺席（is_multipage=false，不发请求）。
+# 裸多P URL 的硬停判定在 multipage_gate（probe 之后必须紧跟调用本函数）。
+multipage_lookup_step() { # $1=out.json
+  python3 "$META" multipage_lookup "$platform" "$id" \
+    --distilled "$tmpdir/distilled.json" --webpage-url "$canonical_url" \
+    > "$1" 2>/dev/null || true
+}
+
+# 裸多P URL 硬停（exit 2 与一般错误 exit 1 区分——需要用户决策而非程序故障）：
+# 不带 ?p= 的多P视频默认只解析到第1P，静默处理会让用户误以为总结了整门课。
+# 是否全部/指定P由调用方向用户确认后，用 ?p=N 形式 URL 逐P驱动。
+multipage_gate() { # $1=multipage.json
+  [[ "$(jget "$1" is_multipage)" == "True" ]] || return 0
+  [[ "$(jget "$1" explicit_p)" == "True" ]] && return 0
+  {
+    echo "ERROR: 多P视频（共 $(jget "$1" page_count)P）——裸 URL 默认只处理第1P，已按策略硬停"
+    echo "decision_required=multipage page_count=$(jget "$1" page_count)"
+    python3 -c '
+import json, sys
+for pg in json.load(open(sys.argv[1])).get("pages") or []:
+    print("  p%02d %s (%ss)" % (pg["p"], pg["title"], pg["duration"]))' "$1"
+    echo "请确认处理范围（全部/指定P），随后用 ?p=N 形式 URL 逐P处理"
+  } >&2
+  exit 2
+}
+
 # ---------- lookup: 只读查重（快速模式/批量前置查询，零写入、不触发 ensure） ----------
 if [[ "$cmd" == "lookup" ]]; then
   [[ $# -ge 2 ]] || usage
@@ -409,6 +501,9 @@ if [[ "$cmd" == "quick" ]]; then
   sub_pref=""
   setup_cookie_for_url "$outdir"
   probe_and_distill "$tmpdir/info.json"
+  # 多P硬停与深度模式同规则: 裸多P URL 静默只取 p1 在快速模式是同一个坑
+  multipage_lookup_step "$tmpdir/multipage.json"
+  multipage_gate "$tmpdir/multipage.json"
   hit=$(registry_folder_of "$platform" "$id")
   if [[ -n "$hit" && ! -f "$hit/summary.md" ]]; then
     echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结取材" >&2
@@ -492,6 +587,28 @@ if [[ -z "$cookie_file" && "$cookie_configured" != "1" ]]; then
   done
 fi
 
+# 多P探测 + collection 三级回填（bare 多P URL 在此硬停 exit 2，先于 SKIP——
+# 即使第1P已总结也要让调用方看到全课清单再决策）
+multipage_lookup_step "$tmpdir/multipage.json"
+multipage_gate "$tmpdir/multipage.json"
+
+is_multipage=$(jget "$tmpdir/multipage.json" is_multipage)
+part=$(jget "$tmpdir/multipage.json" part)
+page_count=$(jget "$tmpdir/multipage.json" page_count)
+course_safe_dir=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("safe_dir") or "")' "$tmpdir/multipage.json")
+course_id=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("id") or "")' "$tmpdir/multipage.json")
+course_title=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("title") or "")' "$tmpdir/multipage.json")
+# 逐P产物后缀（零填充 1-based 对齐 pN）: summary_01.md / meta_01.json / video_01.mp4 …
+sfx="" part_padded="" frames_sub=""
+if [[ "$is_multipage" == "True" ]]; then
+  if [[ -n "$page_count" && "$page_count" != "0" && "$part" -gt "$page_count" ]] 2>/dev/null; then
+    die "p${part} 不存在（该视频共 ${page_count}P）"
+  fi
+  part_padded=$(printf '%02d' "$part")
+  sfx="_${part_padded}"
+  frames_sub="/p${part_padded}"
+fi
+
 # registry 查重（全平台统一键 平台/ID; --force 重跑且复用首次归档目录）
 reg_folder=$(registry_folder_of "$platform" "$id")
 if [[ -n "$reg_folder" && $force -eq 0 ]]; then
@@ -507,12 +624,40 @@ fi
 # 归档目录解析顺序:
 #   1) registry 记录的目录仍存在 → 复用（跨月 --force 重采不产生孤儿）
 #   2) 按归档布局探测既有目录（跨月中断续跑: finish 未执行、registry 无指针，
-#      但上月目录还在）→ meta.json 归属一致即复用，进入下方续跑分支
-#   3) 都没有 → 按当前年月新建
+#      但上月目录还在）→ meta 归属一致即复用，进入下方续跑分支
+#      多P形态: 目录内任一 meta_NN.json 精确归属本P（中断续跑），或字面
+#      课程目录名命中（目录名含父BV，同课程追加新P合法）
+#   3) 都没有 → 按当前年月新建（多P用课程目录名=父BV_主标题；单P用 条目ID_标题）
 # 目录名经消毒（见 pipeline_meta.py sanitize_component）
 pkg=""
 if [[ -n "$reg_folder" && "$reg_folder" == archive/* && -d "$reg_folder" ]]; then
   pkg="$reg_folder"
+elif [[ "$is_multipage" == "True" ]]; then
+  pkg=$(python3 - "$platform" "$id" "$course_safe_dir" <<'PY'
+import json, sys
+from pathlib import Path
+platform, vid, course_dir = sys.argv[1:4]
+
+def owns(c):
+    if c.name == course_dir:  # 字面课程目录名（含父BV）→ 同课程追加新P
+        return True
+    for mp in (c / "raw").glob("meta_*.json"):  # 逐P meta 精确归属 → 中断续跑
+        try:
+            m = json.loads(mp.read_text())
+        except Exception:
+            continue
+        if m.get("platform") == platform and m.get("id") == vid:
+            return True
+    return False
+
+for c in sorted(Path("archive").glob(f"*/{platform}/*")):
+    if c.is_dir() and owns(c):
+        print(c)
+        break
+PY
+)
+  [[ -n "$pkg" ]] && echo "发现既有课程目录（同课程追加/跨月续跑）: $pkg" >&2
+  pkg="${pkg:-archive/$(date +%Y-%m)/$platform/$course_safe_dir}"
 else
   pkg=$(python3 - "$platform" "$id" "$safe_dir" <<'PY'
 import json, sys
@@ -533,11 +678,15 @@ PY
   [[ -n "$pkg" ]] && echo "发现既有归档目录（跨月续跑）: $pkg" >&2
   pkg="${pkg:-archive/$(date +%Y-%m)/$platform/$safe_dir}"
 fi
+# 本P的 meta 相对路径（多P: raw/meta_NN.json；单P: raw/meta.json）
+meta_rel="raw/meta.json"
+[[ "$is_multipage" == "True" ]] && meta_rel="raw/meta_${part_padded}.json"
+
 if [[ -d "$pkg" ]]; then
   if [[ $force -eq 0 ]]; then
-    # 中断续跑: 机械阶段产物完好且归属一致 → 从 raw/meta.json 重建交接 JSON 幂等退出
-    if [[ -f "$pkg/raw/meta.json" ]]; then
-      match=$(python3 - "$pkg/raw/meta.json" "$platform" "$id" <<'PY' || true
+    # 中断续跑: 本P机械产物完好且归属一致 → 从 meta 重建交接 JSON 幂等退出
+    if [[ -f "$pkg/$meta_rel" ]]; then
+      match=$(python3 - "$pkg/$meta_rel" "$platform" "$id" <<'PY' || true
 import json, sys
 m = json.load(open(sys.argv[1]))
 print("yes" if m.get("platform") == sys.argv[2] and m.get("id") == sys.argv[3] else "no")
@@ -548,7 +697,7 @@ PY
         # 块缓冲（进程退出才刷出），若 echo 在其后，2>&1 合并捕获时契约行会
         # 被提示行挤掉末位
         echo "续跑: 机械阶段产物完好，已从中断处恢复（重采请加 --force）" >&2
-        python3 - "$pkg" "$pkg/raw/meta.json" <<'PY'
+        python3 - "$pkg" "$pkg/$meta_rel" <<'PY'
 import json, sys
 from pathlib import Path
 pkg, meta_path = sys.argv[1:3]
@@ -556,6 +705,8 @@ m = json.loads(Path(meta_path).read_text())
 cap = m.get("capabilities") or {}
 files = m.get("files") or {}
 sub = m.get("subtitle") or {}
+part = m.get("part")
+is_mp = bool(m.get("is_multipage")) and part
 h = {
     "folder": pkg, "id": m["id"], "platform": m["platform"],
     "host": m.get("host", ""), "media_kind": m.get("media_kind", "video"),
@@ -573,60 +724,96 @@ h = {
     "has_danmaku": int(bool(cap.get("danmaku"))),
     "has_comments": int(bool(cap.get("comments"))),
     "chapters": m.get("chapters_count", 0),
+    "part": part,
+    "is_multipage": int(is_mp),
+    "summary_file": (f"summary_{part:02d}.md" if is_mp else "summary.md"),
     "must_run_finish": True,
 }
 print(json.dumps(h, ensure_ascii=False))
 PY
         exit 0
       fi
+      die "目录冲突: $pkg/$meta_rel 归属不一致 — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
     fi
-    die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
+    # 多P: 课程目录存在但本P meta 缺席 → 同课程追加新P（合法，继续采集）；
+    # 但目录内若已有其他课程的 meta 则拒绝（防无关目录被污染）
+    if [[ "$is_multipage" == "True" ]] && ls "$pkg"/raw/meta*.json >/dev/null 2>&1; then
+      foreign=$(python3 - "$pkg" "$platform" "$course_id" <<'PY'
+import json, sys
+from pathlib import Path
+pkg, platform, base = sys.argv[1:4]
+for mp in sorted(Path(pkg, "raw").glob("meta*.json")):
+    try:
+        m = json.loads(mp.read_text())
+    except Exception:
+        continue
+    if m.get("platform") != platform or not str(m.get("id") or "").startswith(str(base)):
+        print(m.get("id") or mp.name)
+        break
+PY
+)
+      [[ -n "$foreign" ]] && die "目录冲突: $pkg 内发现非本课程（$course_id）的 meta（$foreign）——请人工检查"
+    fi
+    [[ "$is_multipage" != "True" ]] && \
+      die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
+  elif [[ "$is_multipage" == "True" ]]; then
+    # --force 多P作用域: 仅清理本P产物（旧认知产物改名留痕防陈旧蒙混；
+    # 其他P产物与课程级 audience.json 绝不触碰——对应"--force 吞未提交认知
+    # 产物"历史教训在共享目录下的放大形态，清理名单每一项都带分P过滤）
+    for f in "summary_${part_padded}.md" "evidence/evidence_${part_padded}.md"; do
+      [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
+    done
+    rm -f "$pkg/raw/meta_${part_padded}.json" \
+          "$pkg/raw/video_${part_padded}."* "$pkg/raw/audio_${part_padded}."* \
+          "$pkg/raw/subtitle_${part_padded}.srt" \
+          "$pkg/evidence/chapters_${part_padded}.json" \
+          "$pkg/evidence/danmaku_${part_padded}.xml" \
+          "$pkg/evidence/audience_${part_padded}.json" \
+          "$pkg/evidence/comments_${part_padded}.info.json"
+    rm -rf "$pkg/evidence/frames/p${part_padded}"
+  else
+    # --force 单P: 旧认知产物改名保留（防 finish 的 summary 门槛被上一轮陈旧
+    # 产物蒙混；.stale 不入 Git 追踪白名单，属可弃残留）。必须在 rm -rf 之前
+    # 执行——evidence/ 整目录会被清理；底稿改名到目录根（evidence.md.stale），
+    # 否则改名产物随目录清理被误删。旧布局遗留的顶层 evidence.md 一并留痕
+    # （与 evidence/evidence.md 同目标名，mv -f 后者覆盖）
+    for f in summary.md evidence.md evidence/evidence.md; do
+      [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
+    done
+    # 旧布局兼容：evidence.md 曾位于目录根、meta.json 曾位于目录根
+    # （已改名留痕的 .stale 不在清理名单内，存活）
+    rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"
   fi
-  # 旧认知产物改名保留（防 finish 的 summary.md 门槛被上一轮陈旧产物蒙混；
-  # .stale 不入 Git 追踪白名单，属可弃残留）。必须在 rm -rf 之前执行——
-  # evidence/ 整目录会被清理；底稿改名到目录根（evidence.md.stale），
-  # 否则改名产物随目录清理被误删。旧布局遗留的顶层 evidence.md 一并留痕
-  # （与 evidence/evidence.md 同目标名，mv -f 后者覆盖）
-  for f in summary.md evidence.md evidence/evidence.md; do
-    [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
-  done
-  # 旧布局兼容：evidence.md 曾位于目录根、meta.json 曾位于目录根
-  # （已改名留痕的 .stale 不在清理名单内，存活）
-  rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"
 fi
-mkdir -p "$pkg/raw" "$pkg/evidence/frames"
+mkdir -p "$pkg/raw" "$pkg/evidence/frames${frames_sub}"
 
-# 合集归属反查（platforms.json season_lookup 能力位）：单视频 URL 采集时
-# yt-dlp -J 无 playlist 字段（入口语义缺席），B 站经官方 view API 反查
-# ugc_season 回填 distilled 的 collection。子命令内部入口优先、全部缺席路径
-# 静默退 0（能力位自然缺席，不阻塞采集）；续跑分支不经过此处，meta.json 为准
-python3 "$META" collection_lookup "$platform" "$id" \
-  --distilled "$tmpdir/distilled.json" 1>&2 || true
+# 合集归属/多P探测已在 probe 后经 multipage_lookup 完成（collection 三级回填
+# 已写进 distilled；续跑分支不经过那一段，meta 为准）
 
 # 媒体下载: audio-only 站点（播客等）直接拉音频，跳过视频与抽帧
 video_file="" audio_file=""
 if [[ "$media_kind" == "audio" ]]; then
   echo "纯音频源（audio-only）——跳过视频下载与抽帧" >&2
   yt-dlp --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} -f "bestaudio/best" \
-    -o "$pkg/raw/audio.%(ext)s" "$url" >/dev/null 2> "$tmpdir/dl.err" \
+    -o "$pkg/raw/audio${sfx}.%(ext)s" "$url" >/dev/null 2> "$tmpdir/dl.err" \
     || die "音频下载失败: $(tail -3 "$tmpdir/dl.err" | tr '\n' ' ')"
-  audio_file=$(ls "$pkg"/raw/audio.* 2>/dev/null | head -1 || true)
-  [[ -n "$audio_file" ]] || die "下载完成但未找到音频文件（raw/audio.*）"
+  audio_file=$(ls "$pkg"/raw/audio${sfx}.* 2>/dev/null | head -1 || true)
+  [[ -n "$audio_file" ]] || die "下载完成但未找到音频文件（raw/audio${sfx}.*）"
 else
   yt-dlp --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} \
     -f "bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best" \
-    --merge-output-format mp4 -o "$pkg/raw/video.%(ext)s" "$url" \
+    --merge-output-format mp4 -o "$pkg/raw/video${sfx}.%(ext)s" "$url" \
     >/dev/null 2> "$tmpdir/dl.err" || die "视频下载失败: $(tail -3 "$tmpdir/dl.err" | tr '\n' ' ')"
-  video_file=$(ls "$pkg"/raw/video.* 2>/dev/null | head -1 || true)
-  [[ -n "$video_file" ]] || die "下载完成但未找到视频文件（raw/video.*）"
+  video_file=$(ls "$pkg"/raw/video${sfx}.* 2>/dev/null | head -1 || true)
+  [[ -n "$video_file" ]] || die "下载完成但未找到视频文件（raw/video${sfx}.*）"
 
-  if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$pkg/raw/audio.mp3" 2> "$tmpdir/ffaudio.err"; then
+  if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$pkg/raw/audio${sfx}.mp3" 2> "$tmpdir/ffaudio.err"; then
     # 无音轨是合法输入（纯字幕卡/无声演示）：降级继续，不用 whisper、靠字幕+帧总结
-    if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a aac -b:a 128k "$pkg/raw/audio.m4a" 2>> "$tmpdir/ffaudio.err"; then
+    if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a aac -b:a 128k "$pkg/raw/audio${sfx}.m4a" 2>> "$tmpdir/ffaudio.err"; then
       echo "警告: 音频抽取失败（视频无音轨，或 ffmpeg 未安装）——跳过音频，whisper 转写不可用" >&2
     fi
   fi
-  audio_file=$(ls "$pkg"/raw/audio.* 2>/dev/null | head -1 || true)
+  audio_file=$(ls "$pkg"/raw/audio${sfx}.* 2>/dev/null | head -1 || true)
 fi
 
 # 字幕: 按蒸馏结果下载选中语言（manual/ai 走 write-subs，auto 走 write-auto-subs；
@@ -636,12 +823,12 @@ if [[ "$sel_lang" != "none" ]]; then
   sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
   [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
   yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle" "$url" >/dev/null 2>&1 || true
-  sub_file=$(ls "$pkg"/raw/subtitle.*.srt 2>/dev/null | head -1 || true)
-  [[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle.srt" ]] && mv -f "$sub_file" "$pkg/raw/subtitle.srt"
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle${sfx}" "$url" >/dev/null 2>&1 || true
+  sub_file=$(ls "$pkg"/raw/subtitle${sfx}.*.srt 2>/dev/null | head -1 || true)
+  [[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle${sfx}.srt" ]] && mv -f "$sub_file" "$pkg/raw/subtitle${sfx}.srt"
 fi
 needs_whisper=0
-if [[ ! -f "$pkg/raw/subtitle.srt" ]]; then
+if [[ ! -f "$pkg/raw/subtitle${sfx}.srt" ]]; then
   sel_lang=none; sel_source=none
   if [[ -n "$audio_file" ]]; then
     needs_whisper=1
@@ -651,7 +838,7 @@ if [[ ! -f "$pkg/raw/subtitle.srt" ]]; then
 fi
 
 # 章节（全平台通用，取自 -J；含 start_time/end_time/title）
-python3 - "$tmpdir/distilled.json" "$pkg/evidence/chapters.json" <<'PY'
+python3 - "$tmpdir/distilled.json" "$pkg/evidence/chapters${sfx}.json" <<'PY'
 import json, sys
 chapters = json.load(open(sys.argv[1])).get("chapters") or []
 json.dump(chapters, open(sys.argv[2], "w"), ensure_ascii=False, indent=2)
@@ -662,9 +849,9 @@ has_danmaku=0
 danmaku_cap=$(python3 "$META" capability "$platform" danmaku 2>/dev/null || true)
 if [[ "$danmaku_cap" == "bilibili_xml" ]]; then
   yt-dlp --no-playlist --skip-download --write-subs --sub-lang danmaku \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
-  [[ -f "$pkg/evidence/danmaku.danmaku.xml" ]] && mv -f "$pkg/evidence/danmaku.danmaku.xml" "$pkg/evidence/danmaku.xml"
-  [[ -f "$pkg/evidence/danmaku.xml" ]] && has_danmaku=1
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/danmaku${sfx}" "$url" >/dev/null 2>&1 || true
+  [[ -f "$pkg/evidence/danmaku${sfx}.danmaku.xml" ]] && mv -f "$pkg/evidence/danmaku${sfx}.danmaku.xml" "$pkg/evidence/danmaku${sfx}.xml"
+  [[ -f "$pkg/evidence/danmaku${sfx}.xml" ]] && has_danmaku=1
 fi
 
 # 评论能力位（platforms.json 声明 comments=bilibili_api 走自研 API，其余走
@@ -674,24 +861,34 @@ has_comments=0
 comments_cap=$(python3 "$META" capability "$platform" comments 2>/dev/null || true)
 if [[ "$comments_cap" == "bilibili_api" ]]; then
   dxml=""
-  (( has_danmaku )) && dxml="$pkg/evidence/danmaku.xml"
-  # 传 canonical webpage_url（含 BV 号）而非原始 URL——b23.tv 短链不含 BV 号
-  if python3 "$AUDIENCE" bili --url "$canonical_url" --danmaku-xml "$dxml" \
-       --out-dir "$pkg/evidence" --duration "$dur" 1>&2; then
-    has_comments=1
+  [[ -f "$pkg/evidence/danmaku${sfx}.xml" ]] && dxml="$pkg/evidence/danmaku${sfx}.xml"
+  # 传 canonical webpage_url（含 BV 号）而非原始 URL——b23.tv 短链不含 BV 号。
+  # 多P形态: 评论是 aid 级（全课程共享），课程级 audience.json（无后缀）一次
+  # 采集、其余P自动复用；逐P只产弹幕消化 audience_NN.json（P2 缺口的设计性修复）
+  aargs=()
+  if [[ "$is_multipage" == "True" ]]; then
+    aargs+=(--part "$part" --base-bvid "$course_id" --course-title "$course_title")
   fi
+  if python3 "$AUDIENCE" bili --url "$canonical_url" --danmaku-xml "$dxml" \
+       --out-dir "$pkg/evidence" --duration "$dur" ${aargs[@]+"${aargs[@]}"} 1>&2; then
+    :
+  else
+    echo "警告: 观众反馈采集失败（继续，evidence 缺 audience 产物）" >&2
+  fi
+  # 课程级 audience.json 就绪即视为评论能力位产出（多P下先行P已备好同样算数）
+  [[ -f "$pkg/evidence/audience.json" ]] && has_comments=1
 else
   # yt-dlp 语义: max_comments 多值必须逗号四元组（总数,顶层,回复,每线程回复）
   # 实证（yt-dlp 2026.08.19 options 解析器）: 分号重复键只保留最后一个值 ['10']，
   # 逗号语法才得到 ['60','15','5','10']
   ea=(--extractor-args "$(printf '%s' "$extractor_key" | tr '[:upper:]' '[:lower:]'):max_comments=60,15,5,10")
   yt-dlp --no-playlist --skip-download --write-comments --write-info-json "${ea[@]}" \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments" "$url" >/dev/null 2>&1 || true
-  if [[ -f "$pkg/evidence/comments.info.json" ]]; then
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments${sfx}" "$url" >/dev/null 2>&1 || true
+  if [[ -f "$pkg/evidence/comments${sfx}.info.json" ]]; then
     uargs=()
     [[ -n "$uploader" ]] && uargs+=(--uploader "$uploader")
     [[ -n "$uploader_id" ]] && uargs+=(--uploader-id "$uploader_id")
-    if python3 "$AUDIENCE" generic --info-json "$pkg/evidence/comments.info.json" \
+    if python3 "$AUDIENCE" generic --info-json "$pkg/evidence/comments${sfx}.info.json" \
          --out-dir "$pkg/evidence" --duration "$dur" "${uargs[@]+${uargs[@]}}" 1>&2; then
       has_comments=1
     fi
@@ -699,12 +896,13 @@ else
 fi
 
 # 机械抽帧（自适应上限: 时长/75s，夹在 8..20；无视频（audio-only）跳过；
-# 失败非致命，认知阶段可无帧工作）
+# 失败非致命，认知阶段可无帧工作。多P形态帧落 frames/pNN/ 子目录——
+# 帧文件名是 HH-MM-SS 时间戳，20P 共享一个 frames/ 必然互撞）
 frames_max=0 frames_out="" frames_extracted=0
 if [[ -n "$video_file" ]]; then
   frames_max=$(( dur > 1500 ? 20 : (dur < 600 ? 8 : dur / 75) ))
-  frames_out=$(bash "$FRAMES" "$video_file" "$pkg/evidence/frames" \
-    --max "$frames_max" --chapters "$pkg/evidence/chapters.json") \
+  frames_out=$(bash "$FRAMES" "$video_file" "$pkg/evidence/frames${frames_sub}" \
+    --max "$frames_max" --chapters "$pkg/evidence/chapters${sfx}.json") \
     || echo "警告: 机械抽帧失败（继续，认知阶段将无机械帧可用）" >&2
   frames_extracted=$(printf '%s\n' "$frames_out" | sed -n 's/^frames: extracted=\([0-9]*\).*/\1/p')
   frames_extracted=${frames_extracted:-0}
@@ -714,7 +912,7 @@ fi
 # echo——Python stdout 走管道是块缓冲，提醒行放后面会在 2>&1 合并捕获时
 # 挤掉末位契约行；跳过 finish 会导致 registry 查重失效与 verify FAIL）:
 echo "提醒: 认知阶段产出 summary/evidence 后，必须执行 finish 回写 registry，再执行 verify 验收（本 JSON 的 must_run_finish=true）" >&2
-# meta.json + 交接 JSON（stdout 唯一一行）
+# meta + 交接 JSON（stdout 唯一一行）
 python3 "$META" finalize "$tmpdir/distilled.json" \
   --folder "$pkg" \
   --video-file "${video_file#./}" --audio-file "${audio_file#./}" \
@@ -722,4 +920,6 @@ python3 "$META" finalize "$tmpdir/distilled.json" \
   --needs-whisper "$needs_whisper" --has-danmaku "$has_danmaku" \
   --has-comments "$has_comments" --frames-max "$frames_max" \
   --frames-extracted "$frames_extracted" \
-  --uploader-id "$uploader_id" --upload-date "$upload_date" --account "$account"
+  --uploader-id "$uploader_id" --upload-date "$upload_date" --account "$account" \
+  --part "${part:-0}" --is-multipage "$([[ "$is_multipage" == "True" ]] && echo 1 || echo 0)" \
+  --course-page-count "${page_count:-0}"

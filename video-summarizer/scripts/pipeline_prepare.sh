@@ -251,6 +251,7 @@ for folder in folders:
     # （无后缀 = 单视频/课程级；有后缀 = 逐P产物，1-based 对齐 pN）
     raw = f / "raw"
     metas = []
+    is_course = False
     if (raw / "meta.json").is_file():
         metas.append((raw / "meta.json", "summary.md", "evidence.md"))
     for mp in sorted(raw.glob("meta_[0-9]*.json")) if raw.is_dir() else []:
@@ -261,6 +262,7 @@ for folder in folders:
             p(folder, f"{mp.relative_to(f)} 损坏")
         if m_ and m_.get("part"):
             metas.append((mp, f"summary_{m_['part']:02d}.md", f"evidence_{m_['part']:02d}.md"))
+            is_course = is_course or bool(m_.get("is_multipage"))
     if not metas:
         p(folder, "raw/meta.json 缺失（机械阶段未完成或被移动）")
 
@@ -320,7 +322,7 @@ for folder in folders:
     # 7. .stale 残留（--force 重采后认知阶段未收尾; 后缀变体一并覆盖）
     for st in list(f.glob("*.stale")) + list((f / "evidence").glob("*.stale")):
         p(folder, f".stale 残留: {st.relative_to(f)}（重采后未完成新认知产物）")
-    if course_total and len(metas) > 1:
+    if course_total and is_course:
         info_lines.append(f"信息: {folder}: 课程 {done_parts}/{course_total} P 已总结"
                           f"（部分完成合法）")
 

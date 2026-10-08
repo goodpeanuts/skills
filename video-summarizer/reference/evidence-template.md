@@ -4,6 +4,8 @@
 > 完整结构化数据见 `evidence/audience.json`（本目录）；机械阶段元数据见 `raw/meta.json`；
 > 素材（danmaku.xml / comments.info.json / frames/ 等）不入 Git，可用 `--force` 重采（落回原归档目录）。
 > 占位符取值来源：本表各项 ← meta.json；观众数据 ← audience.json；章节 ← chapters.json。
+> 多P课程形态：产物带 `_NN` 后缀（本底稿即 evidence_NN.md，对应 raw/meta_NN.json / summary_NN.md）；
+> 评论在课程级 audience.json（无后缀，全P共享只采一次），本P弹幕在 audience_NN.json，帧在 frames/pNN/。
 > summary 正文对赞助与噪音执行零痕迹剜除（严格规则 6/7），剜除记录只留存在本文档第 5 节。
 
 ## 1. 溯源

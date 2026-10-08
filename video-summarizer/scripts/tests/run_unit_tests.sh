@@ -456,6 +456,180 @@ rm -rf "$VDIR2"
 mrf=$(grep -c "must_run_finish" "$SKILL/scripts/pipeline_meta.py")
 check "交接 JSON 含 must_run_finish 字段" "1" "$mrf"
 
+# ---------- 多P视频支持 ----------
+echo "== 13. multipage_lookup: 多P探测 + collection 三级回填（payload 注入，离线） =="
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+pages = [{"page": i, "part": f"讲座 {i}", "duration": 2800 + i, "cid": 1000 + i} for i in range(1, 21)]
+(sbox / "mp_payload_multi.json").write_text(json.dumps(
+    {"code": 0, "data": {"bvid": "BV1mpTESTxx", "title": "测试课程", "videos": 20, "pages": pages}}))
+(sbox / "mp_payload_single.json").write_text(json.dumps(
+    {"code": 0, "data": {"bvid": "BV1mpTESTxx", "title": "单P视频", "videos": 1,
+                         "pages": [{"page": 1, "part": "p1", "duration": 100}]}}))
+(sbox / "mp_payload_season.json").write_text(json.dumps(
+    {"code": 0, "data": {"bvid": "BV1mpTESTxx", "title": "T", "videos": 2,
+                         "pages": [{"page": 1}, {"page": 2}],
+                         "ugc_season": {"id": 42, "title": "某合集"}}}))
+for name, coll in (("mp_d_p2", None), ("mp_d_entry", {"id": "PL9", "title": "入口列表"})):
+    (sbox / f"{name}.json").write_text(json.dumps(
+        {"platform": "bilibili", "id": "BV1mpTESTxx_p2", "collection": coll}))
+EOF
+mpget() { python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));v=d.get(sys.argv[2]);print("" if v is None else v)' "$1" "$2"; }
+python3 "$META" multipage_lookup bilibili BV1mpTESTxx_p2 --distilled "$SBOX/mp_d_p2.json" \
+  --webpage-url 'https://www.bilibili.com/video/BV1mpTESTxx?p=2' \
+  --payload-file "$SBOX/mp_payload_multi.json" > "$SBOX/mp_out.json" 2>/dev/null
+check "多P: is_multipage/page_count" "True|20" "$(mpget "$SBOX/mp_out.json" is_multipage)|$(mpget "$SBOX/mp_out.json" page_count)"
+check "多P: part/explicit_p" "2|True" "$(mpget "$SBOX/mp_out.json" part)|$(mpget "$SBOX/mp_out.json" explicit_p)"
+check "多P: collection=父BV回退" "BV1mpTESTxx|测试课程" \
+  "$(python3 -c 'import json;d=json.load(open("'$SBOX'/mp_out.json"))["collection"];print(d["id"]+"|"+d["title"])')"
+check "多P: distilled 写回父BV（P0 修复）" "BV1mpTESTxx" \
+  "$(python3 -c 'import json;print(json.load(open("'$SBOX'/mp_d_p2.json"))["collection"]["id"])')"
+check "多P: course.safe_dir=父BV_主标题" "BV1mpTESTxx_测试课程" \
+  "$(python3 -c 'import json;print(json.load(open("'$SBOX'/mp_out.json"))["course"]["safe_dir"])')"
+check "多P: 分P清单含 p20" "20" \
+  "$(python3 -c 'import json;print(json.load(open("'$SBOX'/mp_out.json"))["pages"][-1]["p"])')"
+python3 "$META" multipage_lookup bilibili BV1mpTESTxx --webpage-url 'https://www.bilibili.com/video/BV1mpTESTxx/' \
+  --payload-file "$SBOX/mp_payload_single.json" > "$SBOX/mp_out1.json" 2>/dev/null
+check "单P: is_multipage=false/course=None" "False|" "$(mpget "$SBOX/mp_out1.json" is_multipage)|$(mpget "$SBOX/mp_out1.json" course)"
+python3 "$META" multipage_lookup bilibili BV1mpTESTxx_p1 --distilled "$SBOX/mp_d_entry.json" \
+  --payload-file "$SBOX/mp_payload_multi.json" > "$SBOX/mp_out2.json" 2>/dev/null
+check "入口 collection 优先不覆盖" "PL9|入口列表" \
+  "$(python3 -c 'import json;d=json.load(open("'$SBOX'/mp_out2.json"))["collection"];print(d["id"]+"|"+d["title"])')"
+python3 "$META" multipage_lookup bilibili BV1mpTESTxx_p1 \
+  --payload-file "$SBOX/mp_payload_season.json" > "$SBOX/mp_out3.json" 2>/dev/null
+check "season 优先于父BV回退" "42|某合集" \
+  "$(python3 -c 'import json;d=json.load(open("'$SBOX'/mp_out3.json"))["collection"];print(d["id"]+"|"+d["title"])')"
+mpout=$(python3 "$META" multipage_lookup generic_ab12cd34 x1 --payload-file "$SBOX/mp_payload_multi.json" 2>/dev/null)
+check "未配置平台静默 is_multipage=false" "False" "$(mpget <(echo "$mpout") is_multipage)"
+mpout=$(python3 "$META" multipage_lookup bilibili au12345678 --payload-file "$SBOX/mp_payload_multi.json" 2>/dev/null)
+check "非 BV id 静默跳过" "False" "$(mpget <(echo "$mpout") is_multipage)"
+
+echo "== 14. finalize 双形态: 多P后缀命名 vs 单P旧命名 =="
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+for p in (1, 2):
+    info = {"_type": "video", "id": f"BV1mpTESTxx_p{p}", "title": f"测试课程 p0{p} 讲座 {p}",
+            "webpage_url": f"https://www.bilibili.com/video/BV1mpTESTxx?p={p}",
+            "duration": 2634, "extractor_key": "BiliBili", "subtitles": {}, "automatic_captions": {}}
+    (sbox / f"info_mp{p}.json").write_text(json.dumps(info))
+EOF
+for p in 1 2; do
+  python3 "$META" distill "$SBOX/info_mp$p.json" --out "$SBOX/dist_mp$p.json"
+  python3 - "$SBOX/dist_mp$p.json" <<'PY'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+d = json.loads(p.read_text())
+d["collection"] = {"id": "BV1mpTESTxx", "title": "测试课程"}
+p.write_text(json.dumps(d, ensure_ascii=False))
+PY
+done
+rm -rf "$SBOX/pkgmp"
+python3 "$META" finalize "$SBOX/dist_mp1.json" --folder "$SBOX/pkgmp" \
+  --video-file "raw/video_01.mp4" --audio-file "raw/audio_01.mp3" \
+  --subtitle-lang ai-zh --subtitle-source manual --needs-whisper 0 \
+  --has-danmaku 1 --has-comments 1 --frames-max 8 --frames-extracted 8 \
+  --part 1 --is-multipage 1 --course-page-count 20 > "$SBOX/handoff_mp1.json"
+check "多P handoff: part/is_multipage/summary_file" "1|1|summary_01.md" \
+  "$(python3 -c 'import json;h=json.load(open("'$SBOX'/handoff_mp1.json"));print("%s|%s|%s"%(h["part"],h["is_multipage"],h["summary_file"]))')"
+check "多P meta 落位 meta_01.json" "yes" "$([[ -f "$SBOX/pkgmp/raw/meta_01.json" ]] && echo yes)"
+check "多P meta 无旧名残留"       "no"  "$([[ -f "$SBOX/pkgmp/raw/meta.json" ]] && echo yes || echo no)"
+check "多P meta 含 course_page_count" "20" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/pkgmp/raw/meta_01.json"))["course_page_count"])')"
+rm -rf "$SBOX/pkgsg"
+python3 "$META" finalize "$SBOX/dist_ch.json" --folder "$SBOX/pkgsg" \
+  --video-file "raw/video.mp4" --audio-file "" \
+  --subtitle-lang none --subtitle-source none --needs-whisper 1 \
+  --has-danmaku 0 --has-comments 0 --frames-max 8 --frames-extracted 7 > "$SBOX/handoff_sg.json"
+check "单P handoff: part=None/is_multipage=0/summary.md" "None|0|summary.md" \
+  "$(python3 -c 'import json;h=json.load(open("'$SBOX'/handoff_sg.json"));print("%s|%s|%s"%(h["part"],h["is_multipage"],h["summary_file"]))')"
+check "单P meta 仍落 meta.json" "yes" "$([[ -f "$SBOX/pkgsg/raw/meta.json" ]] && echo yes)"
+
+echo "== 15. finish --part: 多P registry 条目 + summary 门槛 + 多P目录必带 --part =="
+PROJ_MP="$SBOX/proj_mp"; mkdir -p "$PROJ_MP/archive"
+cp -r "$SBOX/pkgmp" "$PROJ_MP/archive/course"
+cd "$PROJ_MP"
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" >/dev/null 2>&1 && rc=0 || rc=1
+check "多P目录缺 --part 被拒" "1" "$rc"
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" --part 1 >/dev/null 2>&1 && rc=0 || rc=1
+check "缺 summary_01.md 拒写" "1" "$rc"
+echo "# s1" > "archive/course/summary_01.md"
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" --part 1 \
+  --subtitle-source whisper >/dev/null
+check "registry 逐P键登记" "yes" "$(python3 -c 'import json;print("yes" if json.load(open("archive/registry.json"))["videos"]["bilibili"]["BV1mpTESTxx_p1"] else "no")')"
+check "registry 条目 part/summary_file" "1|summary_01.md" \
+  "$(python3 -c 'import json;e=json.load(open("archive/registry.json"))["videos"]["bilibili"]["BV1mpTESTxx_p1"];print("%s|%s"%(e["part"],e["summary_file"]))')"
+check "registry 条目 collection=父BV" "BV1mpTESTxx" \
+  "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["bilibili"]["BV1mpTESTxx_p1"]["collection"]["id"])')"
+check "whisper 终态回写 meta_01.json" "whisper" \
+  "$(python3 -c 'import json;print(json.load(open("archive/course/raw/meta_01.json"))["subtitle"]["source"])')"
+
+echo "== 16. verify 双形态: 多P课程目录（部分完成合法 + 逐P产物检查） =="
+VDIR_MP=$(mktemp -d /tmp/vs-verifymp-XXXX)
+(
+  cd "$VDIR_MP" || exit 9
+  f=0
+  bash "$PREP" init >/dev/null
+  F="archive/2026-10/bilibili/BV1mpTESTxx_测试课程"
+  mkdir -p "$F/raw" "$F/evidence/frames/p01" "$F/evidence/frames/p02"
+  for p in 1 2; do
+    python3 "$SKILL/scripts/pipeline_meta.py" finalize "$SBOX/dist_mp$p.json" --folder "$F" \
+      --video-file "raw/video_0$p.mp4" --audio-file "" \
+      --subtitle-lang ai-zh --subtitle-source manual --needs-whisper 0 \
+      --has-danmaku 1 --has-comments 1 --frames-max 8 --frames-extracted 8 \
+      --part $p --is-multipage 1 --course-page-count 20 >/dev/null
+  done
+  printf '# s1\n![0:01 画面：测试](evidence/frames/p01/00-00-01.jpg)\n' > "$F/summary_01.md"
+  printf '# s2\n' > "$F/summary_02.md"
+  echo "# e1" > "$F/evidence/evidence_01.md"; echo "# e2" > "$F/evidence/evidence_02.md"
+  printf 'x' > "$F/evidence/frames/p01/00-00-01.jpg"
+  bash "$PREP" finish --folder "$F" --part 1 >/dev/null
+  bash "$PREP" finish --folder "$F" --part 2 >/dev/null
+  out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
+  if [[ $rc -eq 0 && "$out" == *"PASS"* ]]; then echo "  ✓ verify PASS: 双P完整课程目录"
+  else echo "  ✗ verify 误报多P目录: $out"; f=$((f+1)); fi
+  if [[ "$out" == *"2/20 P 已总结"* ]]; then echo "  ✓ 课程完成度信息行（2/20）"
+  else echo "  ✗ 缺完成度信息行: $out"; f=$((f+1)); fi
+  rm "$F/summary_02.md"
+  out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
+  if [[ $rc -ne 0 && "$out" == *"summary_02.md 缺失"* ]]; then echo "  ✓ verify FAIL: 逐P summary 缺失被点名"
+  else echo "  ✗ verify 未抓到 summary_02.md 缺失: $out"; f=$((f+1)); fi
+  printf '# s2\n' > "$F/summary_02.md"; rm "$F/evidence/frames/p01/00-00-01.jpg"
+  out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
+  if [[ $rc -ne 0 && "$out" == *"frames/p01/00-00-01.jpg"* ]]; then echo "  ✓ verify FAIL: 多P帧断链（pNN 路径）被点名"
+  else echo "  ✗ verify 未抓到 pNN 断链: $out"; f=$((f+1)); fi
+  printf 'x' > "$F/evidence/frames/p01/00-00-01.jpg"; echo "stale" > "$F/summary_01.md.stale"
+  out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
+  if [[ $rc -ne 0 && "$out" == *".stale 残留: summary_01.md.stale"* ]]; then echo "  ✓ verify FAIL: 后缀 .stale 残留被点名"
+  else echo "  ✗ verify 未抓到后缀 .stale: $out"; f=$((f+1)); fi
+  exit $f
+)
+vrc=$?
+if [[ $vrc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+vrc)); echo "  ✗ verify 双形态沙箱共 $vrc 项失败"; fi
+rm -rf "$VDIR_MP"
+
+echo "== 17. init gitignore: 多P产物忽略规则模式化 =="
+VDIR_GI=$(mktemp -d /tmp/vs-gi-XXXX)
+(
+  cd "$VDIR_GI" || exit 9
+  f=0
+  bash "$PREP" init >/dev/null
+  grep -q 'archive/\*\*/evidence/danmaku_\*\.xml' .gitignore && echo "  ✓ danmaku_*.xml 忽略规则" \
+    || { echo "  ✗ 缺 danmaku_* 忽略规则"; f=$((f+1)); }
+  grep -q 'archive/\*\*/raw/video_\*' .gitignore && echo "  ✓ video_* 忽略规则" \
+    || { echo "  ✗ 缺 video_* 忽略规则"; f=$((f+1)); }
+  g1=$(md5 -q .gitignore); bash "$PREP" init >/dev/null; g2=$(md5 -q .gitignore)
+  if [[ "$g1" == "$g2" ]]; then echo "  ✓ init 幂等（新模式追加后重复 init 不变）"
+  else echo "  ✗ init 不幂等"; f=$((f+1)); fi
+  exit $f
+)
+grc=$?
+if [[ $grc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+grc)); echo "  ✗ gitignore 沙箱共 $grc 项失败"; fi
+rm -rf "$VDIR_GI"
+
 echo ""
 echo "===== 结果: pass=$pass fail=$fail ====="
 [[ $fail -eq 0 ]]

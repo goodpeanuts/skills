@@ -4,18 +4,23 @@
 子命令:
   distill <info.json> --out <distilled.json> [--sub-pref "zh-Hans,en"]
       蒸馏 yt-dlp -J 全量元数据：平台归一化（generic 消歧）、字幕候选与选优、
-      章节（含 end_time）、目录名消毒
+      章节（含 end_time）、所属列表 collection（采集时入口）、目录名消毒
   finalize <distilled.json> --folder <pkg> --video-file V --audio-file A
       --subtitle-lang L --subtitle-source S --needs-whisper 0|1
       --has-danmaku 0|1 --has-comments 0|1 --frames-max N --frames-extracted N
       [--uploader-id ID] [--upload-date D] [--account NAME]
-      写 <pkg>/meta.json，并向 stdout 打印唯一一行交接 JSON（认知阶段契约）
+      写 <pkg>/raw/meta.json，并向 stdout 打印唯一一行交接 JSON（认知阶段契约）
   cookie-platform <URL>
       查 platforms.json：URL 的 **host** 命中某平台 cookie.url_patterns 则打印平台键
   cookie-on-failure <URL>
       打印命中平台的 cookie.on_failure 策略（die|degrade，缺省 die）
   capability <platform> <key>
       查 platforms.json：打印平台能力位取值（danmaku/comments 等），未配置打印空
+  collection_lookup <platform> <video_id> [--distilled <file>] [--payload-file <f>]
+      合集归属反查（platforms.json season_lookup 能力位）：单视频 URL 采集时
+      yt-dlp -J 无 playlist 字段（入口语义缺席），B 站经官方 view API 反查
+      ugc_season 回填 distilled 的 collection。内部入口优先（已有值不覆盖）、
+      全部缺席路径静默退 0（能力位自然缺席）；--payload-file 为离线注入口（单测）
   sanitize <name>
       文件名消毒（单测/调试用）
 
@@ -29,6 +34,8 @@ subtitle_source 枚举: manual | auto | whisper | none。
 registry 误判 SKIP / 归档目录互撞。cookie 文件名与 registry 键均使用该平台键。
 """
 
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+
 import argparse
 import hashlib
 import json
@@ -37,7 +44,7 @@ import sys
 from datetime import datetime, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 # Windows/NTFS 非法字符 + 控制字符，统一映射为 _
 ILLEGAL_RE = re.compile(r"[\x00-\x1f<>:\"/\\|?*]")
@@ -54,7 +61,13 @@ def load_platforms() -> dict:
     所有平台走默认通用链路（免 Cookie、native 评论、无弹幕）。"""
     if not CONFIG_PATH.exists():
         return {}
-    cfg = json.loads(CONFIG_PATH.read_text())
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+    except json.JSONDecodeError as e:
+        # 损坏时按空表降级（全部能力位走通用链路），但必须让用户知道能力在蒸发
+        print(f"警告: {CONFIG_PATH.name} 损坏（{e}）——平台能力位全部退化为通用链路，请修复配置",
+              file=sys.stderr)
+        return {}
     cfg.pop("_meta", None)
     return cfg
 
@@ -85,6 +98,87 @@ def detect_media_kind(info: dict) -> str:
     if vcs and all(v == "none" for v in vcs):
         return "audio"
     return "video"
+
+
+def extract_collection(info: dict, vid: str) -> dict | None:
+    """所属列表（采集时入口）：取 -J 的 playlist_id/playlist_title——合集、
+    播放列表、收藏夹入口都会带上（配合 --no-playlist，字段保留入口上下文）。
+    playlist_id 与视频 ID 相同（如 B 站多 P：其"列表"就是该视频自身）不算所属列表，
+    返回 None。默认 SKIP 语义下同视频只记首次采集的入口；--force 重采后
+    finish 覆盖为最新入口。单视频 URL 入口缺席时，season_lookup 能力位平台
+    会反查归属合集回填 collection（见 collection_lookup）——入口值优先，不被覆盖。"""
+    pid = info.get("playlist_id")
+    if not pid or str(pid) == str(vid):
+        return None
+    return {"id": str(pid), "title": info.get("playlist_title") or str(pid)}
+
+
+def parse_ugc_season(payload: dict) -> dict | None:
+    """B 站 view API 响应 → 归属合集 collection。纯函数（离线可测）：
+    响应非 ok（code!=0）、data.ugc_season 缺席（视频未加入合集）→ None。"""
+    if not isinstance(payload, dict) or payload.get("code") != 0:
+        return None
+    season = ((payload.get("data") or {}).get("ugc_season")) or None
+    if not isinstance(season, dict) or not season.get("id"):
+        return None
+    return {"id": str(season["id"]), "title": season.get("title") or str(season["id"])}
+
+
+def _config_ua() -> str:
+    """读 platforms.json _meta.ua（load_platforms 会丢弃 _meta，这里单独读），
+    表缺失时退回通用 Chrome UA。"""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return "Mozilla/5.0"
+    return ((cfg.get("_meta") or {}).get("ua")) or "Mozilla/5.0"
+
+
+def fetch_season_collection(vid: str, timeout: float = 10):
+    """拉取并解析 B 站归属合集。返回 (collection, err)：err 非空 = 网络/HTTP
+    失败；err 空 collection 为 None = 视频不属于合集。"""
+    from urllib.request import Request, urlopen
+    api = "https://api.bilibili.com/x/web-interface/view?" + urlencode({"bvid": vid})
+    try:
+        req = Request(api, headers={"User-Agent": _config_ua(),
+                                    "Referer": "https://www.bilibili.com/"})
+        with urlopen(req, timeout=timeout) as r:
+            payload = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:  # 网络/风控/超时一律降级，不阻塞机械阶段
+        return None, str(e)
+    return parse_ugc_season(payload), ""
+
+
+def cmd_collection_lookup(platform: str, vid: str, distilled_path: str,
+                          payload_file: str, timeout: float):
+    """合集归属反查回填（season_lookup 能力位）。缺席路径全部静默退 0：
+    平台未声明该能力 / id 非 B 站 bvid / 入口 collection 已有值（入口优先，
+    不发请求不覆盖）/ API 失败或无合集（stderr 告警）。成功 → 原子 merge 进
+    distilled.json。--payload-file 注入 API 响应（离线单测路径，跳过网络）。"""
+    if (load_platforms().get(platform) or {}).get("season_lookup") != "bilibili_ugc":
+        return
+    if not vid.startswith("BV"):  # view API 仅认 bvid（au/ep/ss 等其他 id 静默跳过）
+        return
+    if distilled_path:
+        d = json.loads(Path(distilled_path).read_text())
+        if d.get("collection"):  # 采集时入口优先：有值即归属已定，不覆盖
+            return
+    if payload_file:
+        coll = parse_ugc_season(json.loads(Path(payload_file).read_text()))
+    else:
+        coll, err = fetch_season_collection(vid, timeout)
+        if err:
+            print(f"警告: 合集反查失败（collection 保持缺席）: {err}", file=sys.stderr)
+            return
+    if not coll:
+        return
+    if distilled_path:
+        dp = Path(distilled_path)
+        d["collection"] = coll
+        tmp = dp.parent / (dp.name + ".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+        tmp.replace(dp)
+    print(f"合集反查: {coll['title']} ({coll['id']}) → collection", file=sys.stderr)
 
 
 def sanitize_component(name: str, max_len: int = 40) -> str:
@@ -171,6 +265,7 @@ def cmd_distill(info_path: str, out_path: str, sub_pref: str):
         "upload_date": info.get("upload_date"),
         "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id") or "",
         "uploader_id": info.get("uploader_id") or info.get("channel_id"),
+        "collection": extract_collection(info, vid),
         "chapters": [
             {"start_time": c.get("start_time", 0), "end_time": c.get("end_time"),
              "title": c.get("title", "")}
@@ -204,6 +299,9 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "upload_date": d.get("upload_date"),
         "uploader": d["uploader"],
         "uploader_id": d.get("uploader_id"),
+        # 所属列表：采集时入口（合集/播放列表/收藏夹）；单视频入口缺席时由
+        # season_lookup 能力位反查归属合集回填（B 站 ugc_season）
+        "collection": d.get("collection"),
         # 认知阶段若 whisper 兜底，finish 会回写终态到这里（meta.json 为字幕来源唯一事实源）
         "subtitle": {
             "selected": subtitle_lang,
@@ -218,7 +316,10 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "capabilities": {"danmaku": bool(has_danmaku), "comments": bool(has_comments)},
         "account": account or None,
     }
-    Path(folder, "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+    # meta.json 落 raw/（与字幕/媒体同层）；finalize 自建 raw 目录，单测/手工调用无需预建
+    meta_path = Path(folder, "raw", "meta.json")
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
     summary = {
         "folder": folder,
@@ -233,6 +334,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "upload_date": d.get("upload_date"),
         "uploader": d["uploader"],
         "uploader_id": d.get("uploader_id"),
+        "collection_id": (d.get("collection") or {}).get("id", ""),
+        "collection_title": (d.get("collection") or {}).get("title", ""),
         "account": account or "",
         "video_file": video_file,
         "audio_file": audio_file,
@@ -242,6 +345,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "has_danmaku": has_danmaku,
         "has_comments": has_comments,
         "chapters": len(d["chapters"]),
+        # 认知阶段收尾闸门提醒: 认知产出后必须 finish(回写 registry)+verify(验收)
+        "must_run_finish": True,
     }
     print(json.dumps(summary, ensure_ascii=False))
 
@@ -286,7 +391,7 @@ def main():
     p1.add_argument("--out", required=True)
     p1.add_argument("--sub-pref", default="")
 
-    p2 = cmd.add_parser("finalize", help="写 meta.json 并输出交接 JSON")
+    p2 = cmd.add_parser("finalize", help="写 raw/meta.json 并输出交接 JSON")
     p2.add_argument("distilled_json")
     p2.add_argument("--folder", required=True)
     p2.add_argument("--video-file", required=True)
@@ -315,6 +420,13 @@ def main():
     p6.add_argument("platform")
     p6.add_argument("key")
 
+    p7 = cmd.add_parser("collection_lookup", help="合集归属反查回填 collection")
+    p7.add_argument("platform")
+    p7.add_argument("video_id")
+    p7.add_argument("--distilled", default="", help="merge 目标 distilled.json")
+    p7.add_argument("--payload-file", default="", help="注入 API 响应 JSON（离线单测）")
+    p7.add_argument("--timeout", type=float, default=10)
+
     args = parser.parse_args()
     if args.cmd == "distill":
         cmd_distill(args.info_json, args.out, args.sub_pref)
@@ -330,8 +442,11 @@ def main():
         cmd_cookie_platform(args.url)
     elif args.cmd == "cookie-on-failure":
         cmd_cookie_on_failure(args.url)
-    else:
+    elif args.cmd == "capability":
         cmd_capability(args.platform, args.key)
+    elif args.cmd == "collection_lookup":
+        cmd_collection_lookup(args.platform, args.video_id, args.distilled,
+                              args.payload_file, args.timeout)
 
 
 if __name__ == "__main__":

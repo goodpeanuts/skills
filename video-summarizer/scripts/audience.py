@@ -20,6 +20,8 @@ schema: {"video": {..., "author": {"name","id"}}, "generated_at": ...,
 非弹幕平台 danmaku 为 null；summary 模板的观众反馈章节据 top 内容自行判断有无信号。
 """
 
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+
 import argparse
 import json
 import re

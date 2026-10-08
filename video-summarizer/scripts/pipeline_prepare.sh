@@ -7,7 +7,7 @@
 # （generic 平台也可用 cache/_<host>.cookies.txt）即生效。
 #
 # 机械阶段产出: archive/YYYY-MM/<platform>/<ID_消毒标题>/
-#   meta.json(追踪) raw/{subtitle.srt(追踪), video.*, audio.*}
+#   raw/{meta.json(追踪), subtitle.srt(追踪), video.*, audio.*}
 #   evidence/{audience.json(追踪), danmaku.xml, comments.info.json,
 #             chapters.json, frames/*.jpg}(后四类忽略)
 # stdout 末行 = 交接 JSON（认知阶段契约，字段见 SKILL.md）
@@ -32,9 +32,16 @@ usage() { cat >&2 <<'EOF'
       --sub-pref 覆盖默认字幕语言偏好 [zh-Hans, zh, zh-Hant, 原语言, en]；
       --quality 下载档位，默认 720（总结只需 1280 宽帧 + 音轨）
   pipeline_prepare.sh finish --folder <F> [--subtitle-lang L] [--subtitle-source S]
-      认知阶段完成后回写 registry。字段从 <F>/meta.json 自动装配（要求
-      summary.md 与 meta.json 均存在）；whisper 兜底后用 --subtitle-source whisper
-      覆盖，终态同步回写 meta.json（meta.json 是字幕来源的唯一事实源）
+      认知阶段完成后回写 registry。字段从 <F>/raw/meta.json 自动装配（要求
+      summary.md 与 raw/meta.json 均存在）；whisper 兜底后用 --subtitle-source whisper
+      覆盖，终态同步回写 raw/meta.json（meta.json 是字幕来源的唯一事实源）
+  pipeline_prepare.sh verify [--folder <F>]
+      交付完整性验收（认知阶段收尾必跑，防漏步骤静默出仓）:
+      指定 <F> 只验该归档；缺省全仓扫描 archive/ 下所有归档目录。
+      检查项: summary.md/evidence/evidence.md/raw/meta.json 存在、registry.json
+      可解析且登记了该目录、summary 帧插图引用的帧文件真实存在、
+      无 .stale 残留、无非法时间戳（行文/mermaid 节点）。
+      全部通过打印 PASS 并 exit 0；有问题逐条列出、末行 FAIL exit 1
   pipeline_prepare.sh lookup <URL>
       只读查询（不触发 Cookie ensure、零写入，快速模式用）:
       已总结打印 HIT <folder>，否则 MISS <平台/ID>
@@ -66,6 +73,7 @@ entries = [
     "archive/**/evidence/danmaku.xml",
     "archive/**/evidence/comments.info.json",
     "archive/**/evidence/chapters.json",
+    "archive/**/*.stale",
 ]
 text = p.read_text() if p.exists() else ""
 have = {l.strip() for l in text.splitlines()}
@@ -96,12 +104,13 @@ if [[ "$cmd" == "finish" ]]; then
     shift 2
   done
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
+  case "$ssrc" in ""|manual|auto|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|whisper|none（实得: $ssrc）" ;; esac
   [[ -f "$folder/summary.md" ]] || die "finish 拒绝回写: $folder/summary.md 不存在（先完成认知阶段产出）"
-  [[ -f "$folder/meta.json" ]] || die "finish 拒绝回写: $folder/meta.json 不存在（机械阶段未运行）"
+  [[ -f "$folder/raw/meta.json" ]] || die "finish 拒绝回写: $folder/raw/meta.json 不存在（机械阶段未运行）"
 
-  # 字幕终态覆盖（whisper 兜底后），同步回写 meta.json 保持 meta/registry 一致
+  # 字幕终态覆盖（whisper 兜底后），同步回写 raw/meta.json 保持 meta/registry 一致
   if [[ -n "$slang" || -n "$ssrc" ]]; then
-    python3 - "$folder/meta.json" "$slang" "$ssrc" <<'PY'
+    python3 - "$folder/raw/meta.json" "$slang" "$ssrc" <<'PY'
 import json, sys
 from pathlib import Path
 p, slang, ssrc = sys.argv[1:4]
@@ -115,8 +124,8 @@ PY
   fi
 
   mkdir -p archive
-  python3 - "$REGISTRY" "$folder" "$folder/meta.json" <<'PY'
-import fcntl, json, shutil, sys
+  python3 - "$REGISTRY" "$folder" "$folder/raw/meta.json" <<'PY'
+import fcntl, json, os, shutil, sys
 from datetime import datetime, timezone
 from pathlib import Path
 reg_path, folder, meta_path = sys.argv[1:4]
@@ -132,6 +141,10 @@ entry = {
     "uploader": m.get("uploader"),
     "uploader_id": m.get("uploader_id"),
     "host": m.get("host") or None,
+    # 所属列表（合集/播放列表/收藏夹）：采集时入口；单视频入口缺席时由
+    # season_lookup 能力位反查归属合集回填。按 collection.id 过滤
+    # registry.videos 即可检出同列表的已总结视频
+    "collection": m.get("collection"),
     "subtitle_lang": m["subtitle"]["selected"],
     "subtitle_source": m["subtitle"]["source"],
     "summarized_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
@@ -152,13 +165,123 @@ with open(reg_path, "a+", encoding="utf-8") as f:
     f.seek(0)
     f.truncate()
     f.write(json.dumps(reg, ensure_ascii=False, indent=2) + "\n")
+    f.flush()
+    os.fsync(f.fileno())  # 刷盘后再解锁：否则解锁到 close 之间另一进程可读到旧内容
     fcntl.flock(f, fcntl.LOCK_UN)
 print(f"registry 已更新: {m['platform']}/{m['id']} → {folder}")
 PY
   exit 0
 fi
 
+# ---------- verify: 交付完整性验收（认知阶段收尾闸门） ----------
+if [[ "$cmd" == "verify" ]]; then
+  shift
+  vfolder=""
+  while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || die "verify: 参数 $1 缺少取值"
+    case $1 in
+      --folder) vfolder=$2 ;;
+      *) die "verify: 未知参数 $1（接口: verify [--folder F]）" ;;
+    esac
+    shift 2
+  done
+  python3 - "$REGISTRY" "$vfolder" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+reg_path, vfolder = sys.argv[1], (sys.argv[2] or "").rstrip("/")
+problems = []
+
+def p(folder, msg):
+    problems.append(f"{folder}: {msg}")
+
+# 1. registry 可解析（finish 是否跑过的权威判据）
+reg = None
+try:
+    reg = json.loads(Path(reg_path).read_text()) if Path(reg_path).exists() else None
+except json.JSONDecodeError:
+    problems.append(f"registry.json 损坏（无法解析）——先修复再验收")
+
+if vfolder:
+    folders = [vfolder]
+    if not Path(vfolder).is_dir():
+        print(f"FAIL\n{vfolder}: 归档目录不存在"); sys.exit(1)
+else:
+    folders = sorted(str(d) for d in Path("archive").glob("*/*/*") if d.is_dir())
+
+ts = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?")
+for folder in folders:
+    f = Path(folder)
+    # 2. 认知/机械产物齐全
+    for rel, what in [("summary.md", "summary.md 缺失（认知阶段未完成）"),
+                      ("evidence/evidence.md", "evidence/evidence.md 缺失（底稿未写）"),
+                      ("raw/meta.json", "raw/meta.json 缺失（机械阶段未完成或被移动）")]:
+        if not (f / rel).is_file():
+            p(folder, what)
+    # 3. registry 登记（缺 = 漏跑 finish）
+    if reg is None:
+        # 文件缺失/损坏都会走到这（损坏已单独报告）；缺失=整个流程漏了 finish
+        p(folder, "registry 不存在（finish 从未执行——查重保护完全失效）")
+    else:
+        m = None
+        if (f / "raw/meta.json").is_file():
+            try:
+                m = json.loads((f / "raw/meta.json").read_text())
+            except json.JSONDecodeError:
+                p(folder, "raw/meta.json 损坏")
+        if m:
+            entry = (reg.get("videos", {}).get(m.get("platform"), {})
+                     .get(m.get("id")))
+            if not entry:
+                p(folder, "registry 未登记（漏跑 finish）")
+            elif entry.get("folder") != folder:
+                p(folder, f"registry 登记目录不一致（registry: {entry.get('folder')}）")
+    # 4. summary 帧插图引用真实存在（断链回溯链保障）
+    sm = f / "summary.md"
+    if sm.is_file():
+        text = sm.read_text()
+        for alt, rel in re.findall(r"!\[(.*?)\]\((.*?)\)", text):
+            if not (f / rel).is_file():
+                p(folder, f"帧插图断链: {rel}（alt: {alt[:30]}…）")
+        # 5. 行文时间戳纪律: m:ss 只允许出现在小节标题/帧图 alt/元数据行
+        for i, line in enumerate(text.splitlines(), 1):
+            if not ts.search(line):
+                continue
+            s = line.lstrip()
+            if s.startswith("### [") or s.startswith("![") or s.startswith(">"):
+                continue
+            if "http" in line or "192.168" in line:  # URL 端口误报豁免
+                continue
+            p(folder, f"summary.md:{i} 行文时间戳（仅允许标题范围/帧图 alt）: {s[:40]}…")
+        # 6. mermaid 节点禁时间戳
+        for m_ in re.finditer(r"```mermaid\n(.*?)```", text, re.S):
+            if ts.search(m_.group(1)):
+                p(folder, "mermaid 节点含时间戳（规则 15 禁止）")
+    # 7. .stale 残留（--force 重采后认知阶段未收尾; summary 在目录根、evidence.md 在 evidence/）
+    for st in list(f.glob("*.stale")) + list((f / "evidence").glob("*.stale")):
+        p(folder, f".stale 残留: {st.relative_to(f)}（重采后未完成新认知产物）")
+
+if problems:
+    print("FAIL")
+    for x in problems:
+        print(f"  ✗ {x}")
+    sys.exit(1)
+scope = vfolder or "全仓 archive/"
+print(f"PASS: {scope} 交付完整性验收通过")
+PY
+  exit 0
+fi
+
 # ---------- 公共: Cookie 装配 + 元数据探测 ----------
+# 把 $cookie_file 复制为 $tmpdir 下的工作副本并更新 $cookie_file 指向副本
+cookie_copy() {
+  [[ -z "$cookie_file" ]] && return 0
+  local copy="${tmpdir:-/tmp}/_cookies.working.txt"
+  if cp -f "$cookie_file" "$copy" 2>/dev/null; then
+    cookie_file=$copy
+  fi
+  return 0
+}
 # 设置全局: cookie_file / cookie_args / account / cookie_configured
 # $1 可选 cache-dir（缺省 cache=项目内；quick 传 $tmp 保证项目零写入，
 #    且此模式下项目 cache/ 里的既有文件只读复用、不触发写盘的 ensure）
@@ -175,8 +298,11 @@ setup_cookie_for_url() {
     elif ! ensure_out=$(python3 "$COOKIES" ensure --platform "$plat" --url "$url" \
                         --cache-dir "$cachedir"); then
       msg=$(python3 -c 'import json,sys
-d = json.loads(sys.argv[1])
-print(d.get("error", ""), d.get("hint", ""))' "$ensure_out")
+try:
+    d = json.loads(sys.argv[1])
+    print(d.get("error", ""), d.get("hint", ""))
+except Exception:
+    print(sys.argv[1][-300:] if sys.argv[1] else "未知错误")' "$ensure_out" 2>/dev/null || true)
       onfail=$(python3 "$META" cookie-on-failure "$url" 2>/dev/null || true)
       if [[ "$onfail" == "degrade" ]]; then
         echo "警告: Cookie 准备失败，按 platforms.json on_failure=degrade 匿名继续（字幕/评论/弹幕能力位可能缺席）: $msg" >&2
@@ -190,6 +316,9 @@ print(d.get("error", ""), d.get("hint", ""))' "$ensure_out")
   fi
   cookie_args=()
   if [[ -n "$cookie_file" && -f "$cookie_file" ]]; then
+    # yt-dlp 退出时会回写 --cookies 目标文件：项目内 cookie 文件（含用户手动
+    # 放置）一律复制工作副本再消费，原文件永不被改动
+    cookie_copy
     cookie_args=(--cookies "$cookie_file")
   fi
   return 0
@@ -253,9 +382,10 @@ if [[ "$cmd" == "lookup" ]]; then
   tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
   probe_and_distill "$tmpdir/info.json"
   hit=$(registry_folder_of "$platform" "$id")
-  if [[ -n "$hit" ]]; then
+  if [[ -n "$hit" && -f "$hit/summary.md" ]]; then
     echo "HIT $hit"
   else
+    [[ -n "$hit" ]] && echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结处理" >&2
     echo "MISS $platform/$id"
   fi
   exit 0
@@ -280,8 +410,15 @@ if [[ "$cmd" == "quick" ]]; then
   setup_cookie_for_url "$outdir"
   probe_and_distill "$tmpdir/info.json"
   hit=$(registry_folder_of "$platform" "$id")
+  if [[ -n "$hit" && ! -f "$hit/summary.md" ]]; then
+    echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结取材" >&2
+    hit=""
+  fi
   subtitle_file="" audio_file="" needs_whisper=0
-  if [[ "$sel_lang" != "none" ]]; then
+  if [[ -n "$hit" ]]; then
+    # 已归档: 免取材（读既有 summary.md 即可），零下载
+    sel_lang=archived; sel_source=archived
+  elif [[ "$sel_lang" != "none" ]]; then
     sub_flag=--write-subs
     sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
     [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
@@ -293,7 +430,7 @@ if [[ "$cmd" == "quick" ]]; then
     fi
     [[ -f "$outdir/subtitle.srt" ]] && subtitle_file="$outdir/subtitle.srt"
   fi
-  if [[ -z "$subtitle_file" ]]; then
+  if [[ -z "$subtitle_file" && -z "$hit" ]]; then
     sel_lang=none; sel_source=none; needs_whisper=1
     yt-dlp --no-playlist -f "bestaudio/best" ${cookie_args[@]+"${cookie_args[@]}"} \
       -o "$outdir/audio.%(ext)s" "$url" >/dev/null 2>&1 || true
@@ -346,8 +483,9 @@ if [[ -z "$cookie_file" && "$cookie_configured" != "1" ]]; then
   for cand in "cache/_${platform}.cookies.txt" "cache/_${host}.cookies.txt"; do
     if [[ -f "$cand" ]]; then
       cookie_file=$cand
-      cookie_args=(--cookies "$cookie_file")
       echo "使用手动 Cookie: ${cookie_file}（带登录态重新探测元数据）" >&2
+      cookie_copy
+      cookie_args=(--cookies "$cookie_file")
       probe_and_distill "$tmpdir/info2.json"
       break
     fi
@@ -357,23 +495,49 @@ fi
 # registry 查重（全平台统一键 平台/ID; --force 重跑且复用首次归档目录）
 reg_folder=$(registry_folder_of "$platform" "$id")
 if [[ -n "$reg_folder" && $force -eq 0 ]]; then
-  echo "SKIP: $platform/$id 已总结过 -> $reg_folder (重跑请加 --force)"
-  exit 0
+  if [[ ! -d "$reg_folder" ]]; then
+    # 悬空条目（归档目录被手动删除）：告警后按未总结处理，重采落新目录并自愈
+    echo "警告: registry 记录的归档目录不存在: $reg_folder —— 按未总结重新采集（registry 条目将在 finish 时自愈）" >&2
+  else
+    echo "SKIP: $platform/$id 已总结过 -> $reg_folder (重跑请加 --force)"
+    exit 0
+  fi
 fi
 
-# 归档目录: --force 且 registry 记录的目录仍存在 → 复用（跨月重采不产生孤儿目录）；
-# 否则按当前年月新建。目录名经消毒（见 pipeline_meta.py sanitize_component）
+# 归档目录解析顺序:
+#   1) registry 记录的目录仍存在 → 复用（跨月 --force 重采不产生孤儿）
+#   2) 按归档布局探测既有目录（跨月中断续跑: finish 未执行、registry 无指针，
+#      但上月目录还在）→ meta.json 归属一致即复用，进入下方续跑分支
+#   3) 都没有 → 按当前年月新建
+# 目录名经消毒（见 pipeline_meta.py sanitize_component）
 pkg=""
 if [[ -n "$reg_folder" && "$reg_folder" == archive/* && -d "$reg_folder" ]]; then
   pkg="$reg_folder"
 else
-  pkg="archive/$(date +%Y-%m)/$platform/$safe_dir"
+  pkg=$(python3 - "$platform" "$id" "$safe_dir" <<'PY'
+import json, sys
+from pathlib import Path
+platform, vid, safe_dir = sys.argv[1:4]
+# 目录名字面量比较（safe_dir 可能含 [] 等 glob 特殊字符，不能直接进 glob 模式）
+cands = sorted(c for c in Path("archive").glob(f"*/{platform}/*") if c.name == safe_dir)
+for c in cands:  # 唯一归属一致的既有目录 → 跨月续跑复用
+    try:
+        m = json.loads((c / "raw" / "meta.json").read_text())
+    except Exception:
+        continue
+    if m.get("platform") == platform and m.get("id") == vid:
+        print(c)
+        break
+PY
+)
+  [[ -n "$pkg" ]] && echo "发现既有归档目录（跨月续跑）: $pkg" >&2
+  pkg="${pkg:-archive/$(date +%Y-%m)/$platform/$safe_dir}"
 fi
 if [[ -d "$pkg" ]]; then
   if [[ $force -eq 0 ]]; then
-    # 中断续跑: 机械阶段产物完好且归属一致 → 从 meta.json 重建交接 JSON 幂等退出
-    if [[ -f "$pkg/meta.json" ]]; then
-      match=$(python3 - "$pkg/meta.json" "$platform" "$id" <<'PY' || true
+    # 中断续跑: 机械阶段产物完好且归属一致 → 从 raw/meta.json 重建交接 JSON 幂等退出
+    if [[ -f "$pkg/raw/meta.json" ]]; then
+      match=$(python3 - "$pkg/raw/meta.json" "$platform" "$id" <<'PY' || true
 import json, sys
 m = json.load(open(sys.argv[1]))
 print("yes" if m.get("platform") == sys.argv[2] and m.get("id") == sys.argv[3] else "no")
@@ -384,7 +548,7 @@ PY
         # 块缓冲（进程退出才刷出），若 echo 在其后，2>&1 合并捕获时契约行会
         # 被提示行挤掉末位
         echo "续跑: 机械阶段产物完好，已从中断处恢复（重采请加 --force）" >&2
-        python3 - "$pkg" "$pkg/meta.json" <<'PY'
+        python3 - "$pkg" "$pkg/raw/meta.json" <<'PY'
 import json, sys
 from pathlib import Path
 pkg, meta_path = sys.argv[1:3]
@@ -398,7 +562,10 @@ h = {
     "title": m.get("title"), "url": m.get("url"),
     "duration": m.get("duration") or 0, "language": m.get("language"),
     "upload_date": m.get("upload_date"), "uploader": m.get("uploader"),
-    "uploader_id": m.get("uploader_id"), "account": m.get("account") or "",
+    "uploader_id": m.get("uploader_id"),
+    "collection_id": (m.get("collection") or {}).get("id", ""),
+    "collection_title": (m.get("collection") or {}).get("title", ""),
+    "account": m.get("account") or "",
     "video_file": files.get("video", ""), "audio_file": files.get("audio", ""),
     "subtitle_lang": sub.get("selected", "none"),
     "subtitle_source": sub.get("source", "none"),
@@ -406,6 +573,7 @@ h = {
     "has_danmaku": int(bool(cap.get("danmaku"))),
     "has_comments": int(bool(cap.get("comments"))),
     "chapters": m.get("chapters_count", 0),
+    "must_run_finish": True,
 }
 print(json.dumps(h, ensure_ascii=False))
 PY
@@ -414,9 +582,26 @@ PY
     fi
     die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
   fi
+  # 旧认知产物改名保留（防 finish 的 summary.md 门槛被上一轮陈旧产物蒙混；
+  # .stale 不入 Git 追踪白名单，属可弃残留）。必须在 rm -rf 之前执行——
+  # evidence/ 整目录会被清理；底稿改名到目录根（evidence.md.stale），
+  # 否则改名产物随目录清理被误删。旧布局遗留的顶层 evidence.md 一并留痕
+  # （与 evidence/evidence.md 同目标名，mv -f 后者覆盖）
+  for f in summary.md evidence.md evidence/evidence.md; do
+    [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
+  done
+  # 旧布局兼容：evidence.md 曾位于目录根、meta.json 曾位于目录根
+  # （已改名留痕的 .stale 不在清理名单内，存活）
   rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"
 fi
 mkdir -p "$pkg/raw" "$pkg/evidence/frames"
+
+# 合集归属反查（platforms.json season_lookup 能力位）：单视频 URL 采集时
+# yt-dlp -J 无 playlist 字段（入口语义缺席），B 站经官方 view API 反查
+# ugc_season 回填 distilled 的 collection。子命令内部入口优先、全部缺席路径
+# 静默退 0（能力位自然缺席，不阻塞采集）；续跑分支不经过此处，meta.json 为准
+python3 "$META" collection_lookup "$platform" "$id" \
+  --distilled "$tmpdir/distilled.json" 1>&2 || true
 
 # 媒体下载: audio-only 站点（播客等）直接拉音频，跳过视频与抽帧
 video_file="" audio_file=""
@@ -438,7 +623,7 @@ else
   if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$pkg/raw/audio.mp3" 2> "$tmpdir/ffaudio.err"; then
     # 无音轨是合法输入（纯字幕卡/无声演示）：降级继续，不用 whisper、靠字幕+帧总结
     if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a aac -b:a 128k "$pkg/raw/audio.m4a" 2>> "$tmpdir/ffaudio.err"; then
-      echo "警告: 音频抽取失败（视频可能无音轨）——跳过音频，whisper 转写不可用" >&2
+      echo "警告: 音频抽取失败（视频无音轨，或 ffmpeg 未安装）——跳过音频，whisper 转写不可用" >&2
     fi
   fi
   audio_file=$(ls "$pkg"/raw/audio.* 2>/dev/null | head -1 || true)
@@ -474,7 +659,7 @@ PY
 
 # 弹幕能力位（platforms.json 声明 danmaku=bilibili_xml 的平台）
 has_danmaku=0
-danmaku_cap=$(python3 "$META" capability "$platform" danmaku)
+danmaku_cap=$(python3 "$META" capability "$platform" danmaku 2>/dev/null || true)
 if [[ "$danmaku_cap" == "bilibili_xml" ]]; then
   yt-dlp --no-playlist --skip-download --write-subs --sub-lang danmaku \
     ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/danmaku" "$url" >/dev/null 2>&1 || true
@@ -486,7 +671,7 @@ fi
 # yt-dlp --write-comments 原生支持；max_comments 对所有原生评论平台生效，
 # extractor-args 命名空间用真实 extractor 键小写）
 has_comments=0
-comments_cap=$(python3 "$META" capability "$platform" comments)
+comments_cap=$(python3 "$META" capability "$platform" comments 2>/dev/null || true)
 if [[ "$comments_cap" == "bilibili_api" ]]; then
   dxml=""
   (( has_danmaku )) && dxml="$pkg/evidence/danmaku.xml"
@@ -496,8 +681,10 @@ if [[ "$comments_cap" == "bilibili_api" ]]; then
     has_comments=1
   fi
 else
-  # yt-dlp 语义: max_comments 多值须重复键（总数;顶层;回复;每线程回复;深度），逗号串无效
-  ea=(--extractor-args "$(printf '%s' "$extractor_key" | tr '[:upper:]' '[:lower:]'):max_comments=60;max_comments=15;max_comments=5;max_comments=10")
+  # yt-dlp 语义: max_comments 多值必须逗号四元组（总数,顶层,回复,每线程回复）
+  # 实证（yt-dlp 2026.08.19 options 解析器）: 分号重复键只保留最后一个值 ['10']，
+  # 逗号语法才得到 ['60','15','5','10']
+  ea=(--extractor-args "$(printf '%s' "$extractor_key" | tr '[:upper:]' '[:lower:]'):max_comments=60,15,5,10")
   yt-dlp --no-playlist --skip-download --write-comments --write-info-json "${ea[@]}" \
     ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments" "$url" >/dev/null 2>&1 || true
   if [[ -f "$pkg/evidence/comments.info.json" ]]; then
@@ -523,6 +710,10 @@ if [[ -n "$video_file" ]]; then
   frames_extracted=${frames_extracted:-0}
 fi
 
+# 认知阶段收尾提醒（stderr 不污染交接 JSON 契约行; 必须在 finalize 之前
+# echo——Python stdout 走管道是块缓冲，提醒行放后面会在 2>&1 合并捕获时
+# 挤掉末位契约行；跳过 finish 会导致 registry 查重失效与 verify FAIL）:
+echo "提醒: 认知阶段产出 summary/evidence 后，必须执行 finish 回写 registry，再执行 verify 验收（本 JSON 的 must_run_finish=true）" >&2
 # meta.json + 交接 JSON（stdout 唯一一行）
 python3 "$META" finalize "$tmpdir/distilled.json" \
   --folder "$pkg" \

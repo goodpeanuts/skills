@@ -70,8 +70,15 @@ fi
 echo ""
 echo "[3/6] Checking yt-dlp..."
 if ! command -v yt-dlp &> /dev/null; then
-    echo "  Installing yt-dlp with uv..."
-    uvx --from yt-dlp yt-dlp --version > /dev/null 2>&1 || uv tool install yt-dlp
+    echo "  Installing yt-dlp with uv tool (persistent install)..."
+    # 注意: 不能用 uvx 探测代替安装——uvx 是临时执行不落 PATH，rc=0 会短路掉
+    # uv tool install，造成"安装成功"但 PATH 无 yt-dlp 的虚假成功
+    uv tool install yt-dlp
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v yt-dlp &> /dev/null; then
+        echo "  Error: uv tool install 完成但 yt-dlp 不在 PATH（检查 ~/.local/bin 是否入 PATH）"
+        exit 1
+    fi
     echo "  yt-dlp installed"
 else
     echo "  yt-dlp: OK"

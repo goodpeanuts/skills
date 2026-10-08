@@ -2,13 +2,13 @@
   "_meta": {
     "version": 2,
     "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36",
-    "note": "平台能力位配置表（单一事实源）。能力位取值是『实现枚举』而非任意字符串：cookie 由 ensure_cookies.py 消费（verify_type 目前支持 bilibili_nav）；danmaku 目前支持 bilibili_xml（pipeline_prepare.sh）；comments 支持 bilibili_api | yt_dlp_native（audience.py / pipeline_prepare.sh）。因此：复用现有实现的新平台 = 加一个数据项即可；需要新实现（如 Niconico 弹幕）= 改对应能力组件 + 加数据项。",
-    "cookie_fields": "ensure=是否自动从浏览器导出校验；url_patterns=按 URL 的 host 做 glob 匹配（非子串匹配整条 URL）；domains=Cookie 归属域列表（多域平台如 YouTube 需 youtube.com+google.com）；login_cookie/wanted=关键 Cookie 键；referer/verify_url/verify_type=登录校验；browser=导出浏览器（默认 chrome）；on_failure=ensure 失败策略 die|degrade（默认 die，degrade=告警后匿名继续，能力位自然缺席）"
+    "note": "平台能力位配置表（单一事实源）。能力位取值是『实现枚举』而非任意字符串：cookie 由 ensure_cookies.py 消费（verify_type 目前支持 bilibili_nav）；danmaku 目前支持 bilibili_xml（pipeline_prepare.sh）；comments 支持 bilibili_api | yt_dlp_native（audience.py / pipeline_prepare.sh）；season_lookup 目前支持 bilibili_ugc（pipeline_meta.py collection_lookup：官方 view API 反查 ugc_season 回填 collection，单视频入口缺席时生效）。因此：复用现有实现的新平台 = 加一个数据项即可；需要新实现（如 Niconico 弹幕）= 改对应能力组件 + 加数据项。",
+    "cookie_fields": "ensure=是否自动从浏览器导出校验；url_patterns=对 URL 的 host 做精确/通配匹配（*.domain.com 覆盖子域；勿用 *domain* 子串式——会误命中无关域名）；domains=Cookie 归属域列表（多域平台如 YouTube 需 youtube.com+google.com）；login_cookie/wanted=关键 Cookie 键；referer/verify_url/verify_type=登录校验；browser=导出浏览器（默认 chrome）；on_failure=ensure 失败策略 die|degrade（默认 die，degrade=告警后匿名继续，能力位自然缺席）"
   },
   "bilibili": {
     "cookie": {
       "ensure": true,
-      "url_patterns": ["*bilibili.com*", "*b23.tv*"],
+      "url_patterns": ["bilibili.com", "*.bilibili.com", "b23.tv", "*.b23.tv"],
       "domains": ["bilibili.com"],
       "login_cookie": "SESSDATA",
       "wanted": ["SESSDATA", "buvid3", "buvid4", "bili_jct"],
@@ -19,6 +19,7 @@
       "on_failure": "degrade"
     },
     "danmaku": "bilibili_xml",
-    "comments": "bilibili_api"
+    "comments": "bilibili_api",
+    "season_lookup": "bilibili_ugc"
   }
 }

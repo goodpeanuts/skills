@@ -15,6 +15,8 @@ Usage:
 Output: <output-dir>/subtitle.srt（SRT 格式，含时间戳）。
 """
 
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+
 import argparse
 import os
 import re
@@ -162,14 +164,15 @@ def transcribe_chunk(args: tuple) -> tuple[int, list[dict], float]:
 
 
 def format_srt_timestamp(seconds: float) -> str:
-    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm)."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int(round((seconds - int(seconds)) * 1000))
-    if millis == 1000:  # 浮点进位边界
-        return format_srt_timestamp(seconds + 0.001)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    """Convert seconds to SRT timestamp format (HH:MM:SS,mmm).
+
+    整数毫秒一次性分解。旧实现的毫秒进位靠 +0.001 递归，浮点误差会让
+    1.9996 → "00:00:02,001"（应 02,000）。"""
+    total_ms = round(seconds * 1000)
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, ms = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
 
 
 def merge_segments(results: dict[int, tuple[list[dict], float]]) -> list[dict]:
@@ -314,7 +317,7 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    workers = args.workers or max(1, os.cpu_count() // 2)
+    workers = args.workers or max(1, (os.cpu_count() or 2) // 2)
 
     print(f"Input: {args.input}")
     print(f"Output: {os.path.join(args.output_dir, 'subtitle.srt')}")

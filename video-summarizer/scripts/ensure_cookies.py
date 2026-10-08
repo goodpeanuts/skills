@@ -24,9 +24,12 @@ cache/_<platform>.cookies.txt（generic 平台还可用 cache/_<host>.cookies.tx
 即被 pipeline 采用。
 """
 
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -134,7 +137,10 @@ def parse_netscape_file(platform: str, path: Path) -> dict:
         if line.startswith("#") or not line.strip():
             continue
         f = line.split("\t")
-        if len(f) >= 7 and any(d in f[0] for d in cfg["domains"]) \
+        # 域精确匹配（dom == d / .d / *.d 后缀），子串匹配会放行 .evilbilibili.com
+        if len(f) >= 7 and any(
+                f[0] == d or f[0] == "." + d or f[0].endswith("." + d)
+                for d in cfg["domains"]) \
                 and (not wanted or f[5] in wanted):
             entry["cookies"][f[5]] = f[6].strip()
     login = cfg["login_cookie"]
@@ -165,6 +171,13 @@ def store_entry(platform: str, entry: dict, source: str) -> dict:
     return entry
 
 
+def _preserve_rejected(final: Path):
+    """覆写既有 cookie 文件前把被拒原件改名保留（兑现"绝不静默覆盖用户文件"）。"""
+    if final.exists():
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        os.replace(final, final.with_name(f"{final.name}.rejected-{ts}"))
+
+
 def cmd_ensure(platform: str, url: str):
     if not (json.loads(CONFIG_PATH.read_text()).get(platform) or {}).get("cookie", {}).get("ensure"):
         raise CookieError(f"平台 {platform} 未配置自动 Cookie 导出；如需登录态请手动放置 "
@@ -182,30 +195,37 @@ def cmd_ensure(platform: str, url: str):
         except CookieError as e:
             print(f"警告: 既有 cookie 文件未通过校验（{e}），尝试其他来源", file=sys.stderr)
 
-    # 2) cookies.json 命名空间
+    # 2) cookies.json 命名空间（覆写既有文件前先保留被拒原件为 .rejected）
     entry = load_entry(platform)
     if entry:
         account = check_login(platform, entry["cookies"][cfg["login_cookie"]])
         if account:
+            _preserve_rejected(final)
             write_netscape(platform, entry)
             out({"ok": True, "account": account, "source": "cache"})
             return
 
     # 3) 浏览器导出 → 临时文件，解析+校验通过才落位（失败绝不碰既有文件）
+    if not shutil.which("yt-dlp"):
+        raise CookieError("yt-dlp 不在 PATH（先运行 install_deps.sh 或 uv tool install yt-dlp）")
     browser = cfg.get("browser") or "chrome"
     tmp = export_tmp_path(platform)
     tmp.parent.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(
         ["yt-dlp", "--cookies-from-browser", browser, "--cookies", str(tmp),
          "--skip-download", url], capture_output=True, text=True)
-    if r.returncode != 0 or not tmp.exists():
-        tmp.unlink(missing_ok=True)
-        raise CookieError(f"从 {browser} 导出 Cookie 失败: {r.stderr.strip()[-200:]}")
+    if r.returncode != 0:
+        if not tmp.exists():
+            raise CookieError(f"从 {browser} 导出 Cookie 失败: {r.stderr.strip()[-200:]}")
+        # yt-dlp 对某些 URL 提取失败但 cookie 导出已落盘（如站点首页
+        # Unsupported URL）——临时文件有效即继续解析
+        print(f"警告: yt-dlp 访问 {url} 失败，但 cookie 导出文件已生成，尝试解析", file=sys.stderr)
     try:
         entry = store_entry(platform, parse_netscape_file(platform, tmp), source=browser)
     except CookieError:
         tmp.unlink(missing_ok=True)
         raise
+    _preserve_rejected(final)
     os.replace(tmp, final)
     write_netscape(platform, entry)
     out({"ok": True, "account": entry["account"], "source": browser})

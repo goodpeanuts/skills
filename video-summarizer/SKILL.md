@@ -1,6 +1,6 @@
 ---
 name: video-summarizer
-description: "Summarize, download, or transcribe videos from any of 1800+ yt-dlp supported platforms (Bilibili, YouTube, X/Twitter, TikTok, Vimeo...). Two-phase pipeline: a mechanical script stage fetches video/audio/subtitles/comments/danmaku/key-frames into a per-month per-platform archive, then the cognitive stage reads frames and writes a standalone reading-style summary plus an evidence dossier. Use whenever the user shares a video link and asks to summarize/transcribe/download it, 总结视频 / 视频总结 / 这视频讲了什么 / 阅读版 / 批量总结合集·收藏夹·播放列表, or wants a quick in-chat answer about a video. Bilibili gets enhanced capabilities (AI subtitles, danmaku, hot comments, favlist/collection/watchlater batch)."
+description: "Summarize, download, or transcribe videos from any of 1800+ yt-dlp supported platforms (Bilibili, YouTube, X/Twitter, TikTok, Vimeo...). Two-phase pipeline: a mechanical script stage fetches video/audio/subtitles/comments/danmaku/key-frames into a per-month per-platform archive, then the cognitive stage reads frames and writes a standalone reading-style summary plus an evidence dossier. Use whenever the user shares a video link and asks to summarize/transcribe/download it, 总结视频 / 视频总结 / 这视频讲了什么 / 阅读版 / 批量总结合集·收藏夹·播放列表 / 多P视频·分P课程·整门课批量总结, or wants a quick in-chat answer about a video. Bilibili gets enhanced capabilities (AI subtitles, danmaku, hot comments, favlist/collection/watchlater batch, multipage course support)."
 ---
 
 # Video Summarizer

@@ -15,6 +15,7 @@ set -euo pipefail
 
 SKILL_DIR=$(cd "$(dirname "$0")/.." && pwd)
 META="$SKILL_DIR/scripts/pipeline_meta.py"
+BUILD_TERMS="$SKILL_DIR/scripts/build_context_terms.py"
 COOKIES="$SKILL_DIR/scripts/ensure_cookies.py"
 AUDIENCE="$SKILL_DIR/scripts/audience.py"
 FRAMES="$SKILL_DIR/scripts/extract_frames.sh"
@@ -35,7 +36,7 @@ usage() { cat >&2 <<'EOF'
       认知阶段完成后回写 registry。字段从 <F>/raw/meta.json 自动装配（多P课程
       目录传 --part N 定位 raw/meta_NN.json；要求对应 summary 与 meta 均存在）；
       whisper 兜底后用 --subtitle-source whisper 覆盖，终态同步回写 meta
-      （meta 是字幕来源的唯一事实源）
+      （meta 是字幕来源的唯一事实源）；asr 转写后用 --subtitle-source asr
   pipeline_prepare.sh verify [--folder <F>]
       交付完整性验收（认知阶段收尾必跑，防漏步骤静默出仓）:
       指定 <F> 只验该归档；缺省全仓扫描 archive/ 下所有归档目录。
@@ -120,7 +121,7 @@ if [[ "$cmd" == "finish" ]]; then
     shift 2
   done
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
-  case "$ssrc" in ""|manual|auto|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|whisper|none（实得: $ssrc）" ;; esac
+  case "$ssrc" in ""|manual|auto|asr|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|asr|whisper|none（实得: $ssrc）" ;; esac
   folder=${folder%/}
   # meta 定位: 多P课程目录用 --part 定位 raw/meta_NN.json，单P用 raw/meta.json
   meta_rel="raw/meta.json"
@@ -723,6 +724,11 @@ h = {
     "subtitle_lang": sub.get("selected", "none"),
     "subtitle_source": sub.get("source", "none"),
     "needs_whisper": int(bool(m.get("needs_whisper"))),
+    # 词表路径与后缀形态对齐（多P context_terms_NN.txt / 单P context_terms.txt）
+    "context_terms": next(
+        (str(p.relative_to(Path(pkg))) for p in [
+            Path(pkg, "raw", f"context_terms_{part:02d}.txt" if is_mp else "context_terms.txt"),
+        ] if p.exists()), ""),
     "has_danmaku": int(bool(cap.get("danmaku"))),
     "has_comments": int(bool(cap.get("comments"))),
     "chapters": m.get("chapters_count", 0),
@@ -768,6 +774,7 @@ PY
     rm -f "$pkg/raw/meta_${part_padded}.json" \
           "$pkg/raw/video_${part_padded}."* "$pkg/raw/audio_${part_padded}."* \
           "$pkg/raw/subtitle_${part_padded}.srt" \
+          "$pkg/raw/context_terms_${part_padded}.txt" \
           "$pkg/evidence/chapters_${part_padded}.json" \
           "$pkg/evidence/danmaku_${part_padded}.xml" \
           "$pkg/evidence/audience_${part_padded}.json" \
@@ -830,10 +837,19 @@ if [[ "$sel_lang" != "none" ]]; then
   [[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle${sfx}.srt" ]] && mv -f "$sub_file" "$pkg/raw/subtitle${sfx}.srt"
 fi
 needs_whisper=0
+context_terms_file=""
 if [[ ! -f "$pkg/raw/subtitle${sfx}.srt" ]]; then
   sel_lang=none; sel_source=none
   if [[ -n "$audio_file" ]]; then
     needs_whisper=1
+    # 临时词表（asr --context 识别偏置）: 从标题/简介/tags/章节规则抽取专有
+    # 名词；失败非致命（词表是增益不是前置），asr 空词表照跑、whisper 本就不用词表
+    context_terms_file="raw/context_terms${sfx}.txt"
+    if ! python3 "$BUILD_TERMS" "$tmpdir/distilled.json" \
+         --out "$pkg/raw/context_terms${sfx}.txt" 2>/dev/null; then
+      context_terms_file=""
+      echo "警告: 临时词表生成失败——转写将无词表偏置（继续）" >&2
+    fi
   else
     echo "警告: 无字幕且无音轨——无法获得口播文本，认知阶段按「无有效口播」规则处理" >&2
   fi
@@ -919,7 +935,8 @@ python3 "$META" finalize "$tmpdir/distilled.json" \
   --folder "$pkg" \
   --video-file "${video_file#./}" --audio-file "${audio_file#./}" \
   --subtitle-lang "$sel_lang" --subtitle-source "$sel_source" \
-  --needs-whisper "$needs_whisper" --has-danmaku "$has_danmaku" \
+  --needs-whisper "$needs_whisper" --context-terms "$context_terms_file" \
+  --has-danmaku "$has_danmaku" \
   --has-comments "$has_comments" --frames-max "$frames_max" \
   --frames-extracted "$frames_extracted" \
   --uploader-id "$uploader_id" --upload-date "$upload_date" --account "$account" \

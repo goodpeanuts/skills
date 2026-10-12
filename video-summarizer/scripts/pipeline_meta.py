@@ -33,7 +33,10 @@
 字幕选择策略: 偏好 [zh-Hans, zh, zh-Hant, <视频原语言>, en]（--sub-pref 整体覆盖）。
 注意这是「中文读者」默认偏好而非中立策略；候选分三级 manual（人工/CC）> ai-*
 （平台 AI 字幕）> auto（自动生成），ai-X 与 X 等价匹配（ai-zh ≈ zh）。
-subtitle_source 枚举: manual | auto | whisper | none。
+subtitle_source 枚举: manual | auto | asr | whisper | none。
+（asr = 本地 Qwen3-ASR 转写（goodpeanuts/asr CLI，带临时词表识别偏置），
+whisper = faster-whisper 第二兜底；needs_whisper=1 表示需本地转写，
+认知阶段经 transcribe_fallback.sh 单入口按 asr > whisper 顺序执行。）
 
 平台键规则: extractor_key 小写归一化；generic 提取器（yt-dlp 不专门支持的网站共用）
 消歧为 generic_< webpage_url host 的 sha1 前 8 位>，避免不同网站 id 碰撞导致
@@ -355,6 +358,9 @@ def cmd_distill(info_path: str, out_path: str, sub_pref: str):
         "uploader": info.get("uploader") or info.get("channel") or info.get("uploader_id") or "",
         "uploader_id": info.get("uploader_id") or info.get("channel_id"),
         "collection": extract_collection(info, vid),
+        # 词表原料（build_context_terms.py 消费）：简介与 tags 是专有名词高发区
+        "description": info.get("description") or "",
+        "tags": [str(t) for t in (info.get("tags") or []) if t],
         "chapters": [
             {"start_time": c.get("start_time", 0), "end_time": c.get("end_time"),
              "title": c.get("title", "")}
@@ -372,7 +378,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
                  subtitle_lang: str, subtitle_source: str, needs_whisper: int,
                  has_danmaku: int, has_comments: int, frames_max: int,
                  frames_extracted: int, uploader_id: str, upload_date: str,
-                 account: str, part: int, is_multipage: int, course_page_count: int):
+                 account: str, part: int, is_multipage: int, course_page_count: int,
+                 context_terms: str = ""):
     d = json.loads(Path(distilled_path).read_text())
     # 多P形态: meta/summary 等逐P产物带零填充后缀（meta_01.json / summary_01.md，
     # 1-based 对齐 ?p=N）；单视频形态保持无后缀旧命名（双形态，存量归档零迁移）。
@@ -441,6 +448,9 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "subtitle_lang": subtitle_lang,
         "subtitle_source": subtitle_source,
         "needs_whisper": needs_whisper,
+        # 临时词表文件（raw/context_terms.txt 相对项目根路径；needs_whisper=1 时
+        # 机械阶段已生成，供 asr --context 识别偏置；无则空）
+        "context_terms": context_terms or "",
         "has_danmaku": has_danmaku,
         "has_comments": has_comments,
         "chapters": len(d["chapters"]),
@@ -511,6 +521,7 @@ def main():
     p2.add_argument("--part", type=int, default=0, help="分P号（多P形态；1-based）")
     p2.add_argument("--is-multipage", type=int, default=0)
     p2.add_argument("--course-page-count", type=int, default=0)
+    p2.add_argument("--context-terms", default="", help="临时词表文件路径（raw/context_terms.txt）")
 
     p3 = cmd.add_parser("sanitize", help="文件名消毒（单测/调试）")
     p3.add_argument("name")
@@ -549,7 +560,8 @@ def main():
                      args.subtitle_lang, args.subtitle_source, args.needs_whisper,
                      args.has_danmaku, args.has_comments, args.frames_max,
                      args.frames_extracted, args.uploader_id, args.upload_date,
-                     args.account, args.part, args.is_multipage, args.course_page_count)
+                     args.account, args.part, args.is_multipage, args.course_page_count,
+                     args.context_terms)
     elif args.cmd == "sanitize":
         print(sanitize_component(args.name))
     elif args.cmd == "cookie-platform":

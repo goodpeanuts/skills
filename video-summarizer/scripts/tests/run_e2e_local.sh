@@ -70,8 +70,12 @@ python3 - "$h" "$h2b" <<'PYT'
 import json, sys
 a, b = json.loads(sys.argv[1]), json.loads(sys.argv[2])
 a.pop("folder"); b.pop("folder")   # folder 指向 2020-01 属预期差异
+# context_terms 是续跑时磁盘探测所得，指向挪动后的新目录（video_file 等
+# meta 原样字段保留首采路径），前缀月份差异与 folder 同性质
+a.pop("context_terms"); b.pop("context_terms")
 assert a == b, (a, b)
 assert "/2020-01/" in json.loads(sys.argv[2])["folder"]
+assert "/2020-01/" in json.loads(sys.argv[2])["context_terms"]
 print("OK")
 PYT
 [[ $? -eq 0 ]] && ok "跨月续跑交接 JSON 一致（folder 指向 2020-01）" || bad "跨月交接 JSON 不一致"
@@ -209,6 +213,37 @@ out=$(bash "$PREP" verify --folder "$F11" 2>&1); rc=$?
 bash "$PREP" finish --folder "$F11" >/dev/null
 out=$(bash "$PREP" verify --folder "$F11" 2>&1); rc=$?
 [[ $rc -eq 0 && "$out" == PASS* ]] && ok "verify PASS: finish 后单归档验收通过" || bad "verify 误报: $out"
+
+echo "== E12: 无字幕链路 → 词表生成 + asr 单入口转写（asr 可用时）=="
+# E12a: --force 重采 withaudio（无字幕直链），机械阶段应产出临时词表 + 交接字段
+out=$(bash "$PREP" "$U/withaudio.mp4" --force 2>&1); h12=$(printf '%s\n' "$out" | grep '^{' | tail -1)
+printf '%s' "$h12" | python3 -c '
+import json,sys; d=json.load(sys.stdin)
+assert d["needs_whisper"]==1, d
+assert d.get("context_terms"), "context_terms 缺失: %s" % d.get("context_terms")
+print("OK")' >/dev/null && ok "交接 JSON: needs_whisper=1 + context_terms 非空" || bad "E12 契约: $h12"
+F12=$(printf '%s' "$h12" | python3 -c 'import json,sys;print(json.load(sys.stdin)["folder"])')
+CT=$(printf '%s' "$h12" | python3 -c 'import json,sys;print(json.load(sys.stdin)["context_terms"])')
+[[ -f "$CT" ]] && ok "词表文件落盘: $CT ($(wc -l < "$CT" | tr -d ' ') 行)" || bad "词表未落盘: $CT"
+# E12b: asr 单入口转写。正弦波音轨无语音，转写体用 say 真语音；参数校验独立于引擎
+if command -v asr >/dev/null 2>&1 && asr doctor --runtime >/dev/null 2>&1 && command -v say >/dev/null; then
+  say -o "$E2E/voice.aiff" "大家好，今天我们来测试语音转写引擎。" && \
+    ffmpeg -y -loglevel error -i "$E2E/voice.aiff" "$F12/raw/voice.mp3"
+  out=$(bash "$SKILL/scripts/transcribe_fallback.sh" "$F12/raw/voice.mp3" "$F12/raw" --terms "$CT" 2>&1); rc=$?
+  eng=$(printf '%s\n' "$out" | grep -o 'engine: [a-z]*' | tail -1)
+  if [[ $rc -eq 0 && "$eng" == "engine: asr" ]]; then
+    ok "transcribe_fallback: engine=asr（真语音转写成功）"
+    [[ -s "$F12/raw/subtitle.srt" ]] && ok "asr SRT 落 raw/subtitle.srt" || bad "subtitle.srt 缺失/为空"
+    [[ -d "$F12/raw/asr_run" ]] && ok "asr 原始产物溯源 raw/asr_run/" || bad "asr_run 缺失"
+  else
+    bad "transcribe_fallback 输出: rc=$rc $eng"
+  fi
+else
+  echo "  ↷ 跳过: 本机无可用 asr/say（转写行为由单测覆盖）"
+fi
+# E12c: 参数校验（确定性，不依赖引擎）: 音频不存在 → exit 1
+bash "$SKILL/scripts/transcribe_fallback.sh" "$F12/raw/no_such.mp3" "$F12/raw" >/dev/null 2>&1 && rc=0 || rc=1
+[[ $rc -eq 1 ]] && ok "transcribe_fallback: 音频缺失 exit 1" || bad "音频缺失未拒绝"
 
 echo ""
 echo "===== E2E 结果: pass=$pass fail=$fail ====="

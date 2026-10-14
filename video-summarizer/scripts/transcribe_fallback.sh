@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # transcribe_fallback.sh —— 本地转写单入口（video-summarizer 认知阶段 Step 2.3）
 #
-# 降级链: asr（本地 Qwen3-ASR，带临时词表识别偏置）> whisper（faster-whisper
-# 静音分片并行）。asr 环境未就绪（exit 3）/ 输出冲突（exit 4）/ 产物校验失败
-# 一律自动降级 whisper，whisper 路径原样不喂词表（initial_prompt 幻觉风险）。
+# 降级链: asr（本地 Qwen/Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B 词级对齐，
+# CLI 默认模型、未显式锁 --model——实际取值以 raw/asr_run/manifest.json 为准；
+# 带临时词表识别偏置）> whisper（faster-whisper 静音分片并行）。asr 环境未就绪
+# （exit 3）/ 输出冲突（exit 4）/ 产物校验失败一律自动降级 whisper，whisper
+# 路径原样不喂词表（initial_prompt 幻觉风险）。
 #
 # 用法（认知阶段只调这一条命令，分支逻辑封装在此）:
 #   transcribe_fallback.sh <audio_file> <raw_dir> [--suffix _NN] [--terms <词表路径>]
@@ -45,7 +47,7 @@ run_asr() {
     ${ctx_args[@]+"${ctx_args[@]}"} > "$raw_dir/.asr_stdout${suffix}.json" 2> "$raw_dir/.asr_stderr${suffix}.log" || rc=$?
   # exit 3=环境未就绪 4=输出冲突（--resume 语义之外的重采不自动续用旧产物）→ 降级
   if [[ $rc -ne 0 ]]; then
-    echo "asr 转写失败（exit $rc，详见 $raw_dir/.asr_stderr${suffix}.log）→ 降级 whisper" >&2
+    echo "asr 转写失败（exit ${rc}，详见 $raw_dir/.asr_stderr${suffix}.log）→ 降级 whisper" >&2
     return 1
   fi
   # 产物校验: stdout JSON 契约 + transcript.json 存在

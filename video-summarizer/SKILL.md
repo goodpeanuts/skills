@@ -12,7 +12,7 @@ description: "Summarize, download, or transcribe videos from any of 1800+ yt-dlp
 两阶段 Pipeline，全平台能力模型（平台 = yt-dlp extractor_key 小写归一化；generic 提取器按网页 host 消歧为 `generic_<哈希>`，避免不同网站 id 碰撞）：
 
 1. **机械阶段（脚本，确定性）**：`init` → 单次 `yt-dlp -J` 全量元数据 → registry 按 `平台/ID` 查重 → Cookie 确保（按 `scripts/platforms.json` 平台能力表）→ 下载视频+本地抽音频（audio-only 源直接拉音频）→ 统一字幕探测选优 → 章节/弹幕/评论采集 → 多P探测+合集归属回填（multipage_lookup：一次 view API 同时定 ugc_season 合集、多P清单与父BV回退；裸多P URL 硬停 exit 2）→ 自适应抽帧（近重复帧剔除） → 归档
-2. **认知阶段（Agent，判断性）**：体裁判定（教程/讲座/测评/访谈/资讯/观点/娱乐）→ 读关键帧（按需补帧）→ whisper 兜底转写 → 生成 summary.md（四章节骨架：TL;DR → 脉络总览 → 逐段详解 → 延伸）+ evidence/evidence.md（证据底稿）→ `finish` 回写 registry → `verify` 交付验收。**finish 与 verify 是认知阶段的强制收尾**（交接 JSON 带 `must_run_finish: true`）：漏 finish 会让 registry 查重失效（同视频被重采），verify FAIL 必须回修后才算交付完成
+2. **认知阶段（Agent，判断性）**：体裁判定（教程/讲座/测评/访谈/资讯/观点/娱乐）→ 读关键帧（按需补帧）→ 本地转写兜底（asr 带词表偏置优先、whisper 降级，单入口 transcribe_fallback.sh）→ 生成 summary.md（四章节骨架：TL;DR → 脉络总览 → 逐段详解 → 延伸）+ evidence/evidence.md（证据底稿）→ `finish` 回写 registry → `verify` 交付验收。**finish 与 verify 是认知阶段的强制收尾**（交接 JSON 带 `must_run_finish: true`）：漏 finish 会让 registry 查重失效（同视频被重采），verify FAIL 必须回修后才算交付完成
 
 字幕/章节/评论/弹幕/合集反查/Cookie 各为独立能力位；平台缺某能力时对应产物自然缺席，不报错、不硬凑（Cookie 失败也按 `on_failure` 策略降级而非一律终止）。能力位由 `scripts/platforms.json` 声明，**取值是实现枚举**：复用现有实现的新平台 = 加一个数据项；需要新实现（如第二个弹幕平台）= 改对应能力组件 + 加数据项（枚举清单见 platforms.json `_meta.note`）。
 
@@ -24,7 +24,7 @@ description: "Summarize, download, or transcribe videos from any of 1800+ yt-dlp
 bash "$SKILL_DIR/scripts/pipeline_prepare.sh" quick "VIDEO_URL" [--tmp <DIR>]
 ```
 
-stdout 末行是取材 JSON：`registry_hit` 非空 → 直接 Read 该 folder 的 summary.md 作答；否则读 `subtitle_file`（选优规则与深度模式一致）；`needs_whisper=1` → 用 `audio_file` 跑 whisper 临时转写再作答。全部产物（含 Cookie 派生物）落在 `--tmp`（缺省系统临时目录）；项目内已有 cookie 文件时**复制工作副本消费**（yt-dlp 会回写 `--cookies` 目标文件），保证**项目内零写入**、不建 archive、不写 registry。作答约束最小化：不编造、可带时间戳，无需模板。
+stdout 末行是取材 JSON：`registry_hit` 非空 → 直接 Read 该 folder 的 summary.md 作答；否则读 `subtitle_file`（选优规则与深度模式一致）；`needs_whisper=1` → 用 `audio_file` 跑本地转写（quick 模式词表未生成，transcribe_fallback.sh 不带 --terms）再作答。全部产物（含 Cookie 派生物）落在 `--tmp`（缺省系统临时目录）；项目内已有 cookie 文件时**复制工作副本消费**（yt-dlp 会回写 `--cookies` 目标文件），保证**项目内零写入**、不建 archive、不写 registry。作答约束最小化：不编造、可带时间戳，无需模板。
 
 也可先用 `lookup "VIDEO_URL"`（只读、不触发 Cookie）单独查档：`HIT <folder>` / `MISS <平台/ID>`（registry 条目悬空——目录无 summary.md——按 MISS 处理并告警）。
 
@@ -116,8 +116,10 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force  # 强制重�
 | collection_id / collection_title | 所属列表（合集/播放列表/收藏夹/多P父BV；入口优先，缺席时 ugc_season > 父BV 回填；无则空）。同课程/合集检索按 registry `collection.id` 过滤 |
 | media_kind | video \| audio（audio-only 源：无视频文件与抽帧） |
 | video_file / audio_file | 媒体实际相对路径（**不要假设 video.mp4**；对应文件可能不存在=无视频/无音轨） |
-| subtitle_lang / subtitle_source | 选中字幕与来源（manual/auto/whisper/none） |
-| needs_whisper | 1 = 无字幕且有音轨，需 whisper 兜底 |
+| subtitle_lang / subtitle_source | 选中字幕与来源（manual/auto/asr/whisper/none） |
+| needs_whisper | 1 = 无字幕且有音轨，需本地转写（asr 优先、whisper 兜底，走 transcribe_fallback.sh 单入口） |
+| context_terms | 临时词表路径（`raw/context_terms[_NN].txt`，机械阶段从标题/简介/tags/章节规则抽取的专有名词，供 asr 识别偏置；无则空） |
+| subtitle_download_failed | true = 选中字幕下载失败已自动降级为本地转写（stderr 落 `raw/subtitle_download*.err.log`，摘要记 `meta.subtitle.error`；verify 对"候选可命中偏好却 selected=none"的归档输出警告）；缺省 false |
 | has_danmaku / has_comments | 弹幕/评论能力位是否产出（audience 产物落盘即 1，可能 0 条） |
 | chapters | 官方章节数（0 = 无，时间线自行分段） |
 | part / is_multipage / summary_file | 分P号（单视频 null）、多P形态标记、本P认知产物文件名（`summary_01.md` 或 `summary.md`）——认知阶段以 `summary_file` 为准命名产出 |
@@ -131,12 +133,12 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force  # 强制重�
    bash "$SKILL_DIR/scripts/extract_frames.sh" "<video_file>" "<folder>/evidence/frames[/pNN]" --at "65,130.5,208"
    ```
    注意 `video_file`/`audio_file` 已是**项目根相对全路径**（folder 已含其中），直接使用、不要再拼 `<folder>/` 前缀；多P形态补帧输出目录带 `pNN` 子目录。
-3. **whisper 兜底**（`needs_whisper: 1` 时；HF 限速改用 `--model-path` 指向本地模型目录，如 ModelScope 下载的 `cache/whisper-models/faster-whisper-small`）：
+3. **本地转写**（`needs_whisper: 1` 时，**单入口命令**——asr 优先、whisper 自动兜底，不要手工选引擎）：
    ```bash
-   uv run "$SKILL_DIR/scripts/parallel_transcribe.py" --input "<audio_file>" \
-     --output-dir "<folder>/raw" --model small --language auto
+   bash "$SKILL_DIR/scripts/transcribe_fallback.sh" "<audio_file>" "<folder>/raw" \
+     [--suffix "_NN"] [--terms "<context_terms>"]
    ```
-   输出直落 `raw/subtitle.srt`（多P形态重命名/另存为 `raw/subtitle_NN.srt`）。
+   `--suffix` 多P形态传 `"_01"` 样式后缀；`--terms` 传交接 JSON 的 `context_terms`（机械阶段从标题/简介/tags 规则抽取的临时词表，缺席则不带）。降级链封装在脚本内：**asr**（本地 **Qwen/Qwen3-ASR-1.7B** 转写 + **Qwen/Qwen3-ForcedAligner-0.6B** 词级对齐（asr CLI 默认模型，未显式传 `--model`——实际取值以各归档 `raw/asr_run/manifest.json` 的 `request.options` 为事实源），带词表识别偏置，中文优先）via goodpeanuts/asr CLI → 环境未就绪/失败自动降 **whisper**（faster-whisper small，静音分片并行；HF 限速时其 `--model-path` 改本地模型目录如 ModelScope 下载的 `cache/whisper-models/faster-whisper-small`，须手工跑 `parallel_transcribe.py` 时同规则）。输出统一落 `raw/subtitle_NN.srt` 命名约定（asr 原始产物留 `raw/asr_run[_NN]/` 溯源）。stdout 末行 `engine: asr|whisper` 决定 finish 时 `--subtitle-source` 传 `asr` 还是 `whisper`。
 4. **生成 summary（文件名以交接 JSON `summary_file` 为准：单P `summary.md`，多P `summary_NN.md`）**：按 `$SKILL_DIR/reference/summary-prompt.md` 填充占位符（FRAMES=读帧观察，每条附帧文件名；AUDIENCE=audience 产物消化版——多P形态评论来自课程级 audience.json（注明课程级）、弹幕来自 audience_NN.json；无评论无弹幕时观众反馈项留空；PURPOSE=用户观看目的或空；`{{PLATFORM}}` 对 generic 平台填 host 可读名而非哈希键）。骨架为固定四章节 **TL;DR → 脉络总览 → 逐段详解 → 延伸**（认知渐进：先目的与收获、再结构、再细节、最后附录），观众信号融入对应位置而非独立章节；脉络总览对知识型/流程型内容**按需绘制 mermaid 结构图**（思维导图/流程图/展示图谱，纪律见提示词严格规则 15）。遵守证据法则：正文零证据痕迹；含实质信息的帧按提示词「严格规则 12 · 关键帧插图」以相对链接嵌入对应位置（多P帧路径含 `pNN/` 段）。
 5. **生成 evidence 底稿（单P `evidence/evidence.md`，多P `evidence/evidence_NN.md`）**：按 `$SKILL_DIR/reference/evidence-template.md` 承接全部溯源细节（所有占位符的取值来源：meta / audience 产物 / chapters；赞助段与噪音的剜除记录留痕于底稿第 5 节，summary 正文零痕迹）——与它取证的原始侧账同目录。
 
@@ -144,10 +146,10 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force  # 强制重�
 
 ```bash
 bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish --folder "<folder>" \
-  [--part <N>] [--subtitle-lang "<lang>"] [--subtitle-source "<manual|auto|whisper>"]
+  [--part <N>] [--subtitle-lang "<lang>"] [--subtitle-source "<manual|auto|asr|whisper>"]
 ```
 
-finish 从 `<folder>/raw/meta.json` 自动装配全部字段（杜绝手抄漂移；**多P课程目录必须带 `--part N`** 定位 `raw/meta_NN.json`），校验对应 summary（`summary.md` / `summary_NN.md`）已存在后带文件锁回写，registry 条目含 `part`/`summary_file`；whisper 兜底场景必须传 `--subtitle-source whisper`，终态会同步回写 meta（meta 是字幕来源的唯一事实源）。
+finish 从 `<folder>/raw/meta.json` 自动装配全部字段（杜绝手抄漂移；**多P课程目录必须带 `--part N`** 定位 `raw/meta_NN.json`），校验对应 summary（`summary.md` / `summary_NN.md`）已存在后带文件锁回写，registry 条目含 `part`/`summary_file`；本地转写场景必须按 transcribe_fallback.sh 输出的 engine 传 `--subtitle-source asr`（或 `whisper`），终态会同步回写 meta（meta 是字幕来源的唯一事实源）。
 
 ### Step 4: 交付验收（强制闸门）
 
@@ -208,11 +210,12 @@ B 站常把整门课放进一个 BV 的多个分P（如斯坦福 CS183B = 1 BV �
 - **裸多P URL 硬停（exit 2）**：多P视频不带 `?p=` 时 prepare/quick 拒绝执行并打印分P清单——这不是故障而是决策闸门，向用户确认范围后用 `?p=N` 逐P处理；`?p=N` 超范围同样被拒
 - **多P部分完成**：合法状态（用户可只圈定部分P）。verify 只验已采集的P并输出"课程 N/M P 已总结"；日后补全其余P直接重跑即可（已做P自动 SKIP）
 - **续跑**：机械阶段完成、认知阶段中断 → 重跑同命令自动从 meta.json 恢复，不重复下载
-- **无字幕且 whisper 无有效语音**：按 summary-prompt 的「无有效口播时拒绝编造」规则输出失败原因，不编内容
+- **无字幕且本地转写无有效语音**：按 summary-prompt 的「无有效口播时拒绝编造」规则输出失败原因，不编内容
 - **无音轨视频**：机械阶段自动降级（audio_file 为空、needs_whisper=0），靠字幕+帧总结；audio-only 源反向同理（无 video_file、无抽帧）
-- **Cookie 失败**（无 Chrome/未登录）：按 platforms.json `on_failure` 处理——bilibili 配置为 degrade（告警后匿名继续，字幕/评论/弹幕能力位自然缺席）；手动放置 `cache/_<平台键>.cookies.txt`（或 generic 的 `_<host>` 命名）后重试即被自动校验采用。B 站无登录态通常无字幕可下，此时走 whisper 兜底，不要假装能降级拿 CC
-- **HuggingFace 限速**：从 ModelScope 下载模型放 `cache/whisper-models/`，whisper 命令改带 `--model-path cache/whisper-models/faster-whisper-small`
-- **视频过长（>1 小时）**：默认完整处理（whisper 自动分片），单视频模式可先告知用户耗时；批量模式一律直接处理
+- **Cookie 失败**（无 Chrome/未登录）：按 platforms.json `on_failure` 处理——bilibili 配置为 degrade（告警后匿名继续，字幕/评论/弹幕能力位自然缺席）；手动放置 `cache/_<平台键>.cookies.txt`（或 generic 的 `_<host>` 命名）后重试即被自动校验采用。B 站无登录态通常无字幕可下，此时走本地转写兜底，不要假装能降级拿 CC
+- **asr 不可用**（未安装/非 Apple Silicon/模型未备）：transcribe_fallback.sh 自动降 whisper，无需人工干预；`asr doctor` 可单独诊断
+- **HuggingFace 限速**（仅 whisper 路径）：从 ModelScope 下载模型放 `cache/whisper-models/`，whisper 命令改带 `--model-path cache/whisper-models/faster-whisper-small`
+- **视频过长（>1 小时）**：默认完整处理（asr 顺序推理较慢但准确率优先；whisper 自动分片并行），单视频模式可先告知用户耗时；批量模式一律直接处理
 - **B 站风控（HTTP 412/352）**：稍后重试或补充 buvid Cookie
 - **目录冲突**：归档目录已存在、registry 未登记、meta.json 归属不一致 → 报错拒跑（meta 一致则自动续跑），人工检查后处理
 - **registry 损坏**：读侧（lookup/prepare 查重）告警并视为无记录；写侧（finish）自动备份 `registry.json.corrupt-<时间戳>` 后重建，不静默丢历史
@@ -221,5 +224,24 @@ B 站常把整门课放进一个 BV 的多个分P（如斯坦福 CS183B = 1 BV �
 
 1. 产出固定在项目根 `archive/YYYY-MM/`（年月=处理时间，`--force` 重采落回原目录）；registry 在 `archive/registry.json`；上传日期/作者 ID/host/所属列表同时记入 meta.json 与 registry，可按发布时间、作者、站点、合集检索。
 2. 仅限个人学习用途；遵守平台条款。
-3. 首次 whisper 运行需下载模型（small ≈244MB）；长音频自动静音分片、多核并行转写。
+3. 本地转写双引擎：asr 优先（当前模型 **Qwen/Qwen3-ASR-1.7B** FP16 + 词级对齐 **Qwen/Qwen3-ForcedAligner-0.6B**，asr CLI 默认值、经 `asr models prepare` 预备；本 Skill 不锁 `--model`，换默认以归档 manifest.json 为事实源），whisper 首次运行需下载模型（small ≈244MB）、长音频自动静音分片多核并行；引擎选择由 transcribe_fallback.sh 自动完成。
 4. 回归测试：`bash scripts/tests/run_unit_tests.sh`（离线单测）与 `bash scripts/tests/run_e2e_local.sh`（本地 generic E2E，需 ffmpeg）；改任何脚本后先跑单测。
+
+## 本地转写引擎（asr）部署
+
+asr 是独立的私有仓库（https://github.com/goodpeanuts/asr），本 Skill 只做**消费方**。部署约束按下面三层：
+
+**集成契约**（本 Skill 对 asr 的全部要求，满足即第一兜底生效）：
+- `asr` 命令在 PATH 上可发现（`command -v asr` 命中）
+- `asr doctor --runtime` 健康检查通过（transcribe_fallback.sh 每次转写前自检）
+- 转写模型已就绪（`asr models prepare` 预备过；缺模型时 doctor 会拦下并自动降 whisper）
+
+任一不满足 → transcribe_fallback.sh 自动降 whisper，总结流程不受阻，只是失去词表偏置增益。
+
+**部署指路（不复制安装步骤）**：安装与模型准备方法**以该仓库 README 为唯一事实源**（其「在新 Mac 上安装」一节，含 Python/ffmpeg 版本约束与 uv 安装细节）——本 Skill 不复述，避免上游安装方式演进后此处漂移。新机器上的入口动作只有四步：
+1. clone 仓库：https://github.com/goodpeanuts/asr
+2. 按其 README 完成安装（获得 `asr` 命令）
+3. `asr models prepare`（首次下载模型）
+4. `asr doctor --models --runtime` 验收通过
+
+**边界**：asr 的依赖（Python 3.12、ffmpeg 等）由其仓库自身安装流程负责，本 Skill 与 install_deps.sh 均不托管、不代装；install_deps.sh 仅探测并提示（见下），缺席不阻断安装。

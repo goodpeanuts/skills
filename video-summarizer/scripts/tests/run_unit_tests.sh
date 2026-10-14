@@ -200,6 +200,86 @@ check "交接 JSON 无列表时 collection_id 空" "" "$(python3 -c 'import json
 check "meta.json 含 collection（嵌套）" "PL123" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/pkg2/raw/meta.json"))["collection"]["id"])')"
 check "meta.json 无列表时 collection=None" "None" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/pkg/raw/meta.json"))["collection"])')"
 
+echo "== 6b. distill: description/tags（词表原料）+ finalize context_terms =="
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+d = {"_type": "video", "id": "v10", "title": "RTX 5090 评测",
+     "webpage_url": "https://x.com/v10", "duration": 60, "extractor_key": "Some",
+     "description": "本期测 RTX 5090 与 Claude Code", "tags": ["硬件评测", "RTX 5090"]}
+(sbox / "info_desc.json").write_text(json.dumps(d))
+EOF
+python3 "$META" distill "$SBOX/info_desc.json" --out "$SBOX/dist_desc.json"
+check "description 蒸馏" "yes" "$(python3 -c 'import json;print("yes" if json.load(open("'$SBOX'/dist_desc.json"))["description"] else "no")')"
+check "tags 蒸馏" "RTX 5090" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/dist_desc.json"))["tags"][1])')"
+check "缺 description 蒸馏为空串" "" "$(dget "$SBOX/dist_ch.json" description)"
+mkdir -p "$SBOX/pkg3"
+python3 "$META" finalize "$SBOX/dist_desc.json" --folder "$SBOX/pkg3" \
+  --video-file "" --audio-file "raw/audio.mp3" \
+  --subtitle-lang "none" --subtitle-source "none" --needs-whisper 1 \
+  --context-terms "raw/context_terms.txt" --has-danmaku 0 --has-comments 0 \
+  --frames-max 8 --frames-extracted 8 > "$SBOX/handoff3.json"
+check "交接 JSON 含 context_terms" "raw/context_terms.txt" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/handoff3.json"))["context_terms"])')"
+check "缺省 context_terms 为空串" "" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/handoff.json"))["context_terms"])')"
+
+echo "== 6c. build_context_terms: 词表抽取 =="
+BTERMS="$SKILL/scripts/build_context_terms.py"
+python3 "$BTERMS" "$SBOX/dist_desc.json" --out "$SBOX/terms.txt"
+tgrep() { grep -Fxq "$2" "$1" && echo yes || echo no; }
+check "拉丁混排词抽取（RTX 5090）"  "yes" "$(tgrep "$SBOX/terms.txt" "RTX 5090")"
+check "CJK 词块抽取（硬件评测）"    "yes" "$(tgrep "$SBOX/terms.txt" "硬件评测")"
+check "去重（RTX 5090 只一次）"      "1" "$(grep -cFx "RTX 5090" "$SBOX/terms.txt" | tr -d ' ')"
+check "URL 不入词表（v10 无 URL）"  "no" "$(tgrep "$SBOX/terms.txt" "https://x.com/v10")"
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+d = {"is_playlist": True}
+(sbox / "dist_plist.json").write_text(json.dumps(d))
+EOF
+python3 "$BTERMS" "$SBOX/dist_plist.json" --out "$SBOX/terms_plist.txt"
+check "playlist 输入产出空词表" "0" "$(wc -l < "$SBOX/terms_plist.txt" | tr -d ' ')"
+
+echo "== 6d. asr_to_srt: 词级时间戳聚合 =="
+A2S="$SKILL/scripts/asr_to_srt.py"
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+words = [
+    {"id": 0, "start": 0.0, "end": 0.5, "text": "大家好"},
+    {"id": 1, "start": 0.5, "end": 1.0, "text": "今天。"},
+    {"id": 2, "start": 2.5, "end": 3.0, "text": "停顿断句"},
+    {"id": 3, "start": 3.1, "end": 3.5, "text": "测试"},
+    {"id": 4, "start": 3.6, "end": None, "text": "完成。"},
+    {"id": 5, "speaker": "S1", "start": None, "end": None, "text": "无时间戳跳过"},
+]
+(sbox / "transcript.json").write_text(json.dumps(
+    {"schema": "asr/transcript/v1", "text": "x", "language": "Chinese", "segments": words}))
+(sbox / "transcript_empty.json").write_text(json.dumps(
+    {"schema": "asr/transcript/v1", "text": "", "segments": []}))
+EOF
+python3 "$A2S" "$SBOX/transcript.json" --out "$SBOX/sub.srt"
+check "SRT 计数行存在" "1" "$(sed -n '1p' "$SBOX/sub.srt" | tr -d ' ')"
+check "标点断句（句1 0.0-1.0）" "00:00:00,000 --> 00:00:01,000" "$(sed -n '2p' "$SBOX/sub.srt")"
+check "停顿断句触发（句2 时间轴）" "00:00:02,500 --> 00:00:03,500" "$(grep -B1 "停顿断句" "$SBOX/sub.srt" | sed -n '1p')"
+check "无时间戳词被跳过" "no" "$(grep -q "无时间戳" "$SBOX/sub.srt" && echo yes || echo no)"
+python3 "$A2S" "$SBOX/transcript_empty.json" --out "$SBOX/sub_empty.srt" 2>/dev/null && rc=0 || rc=1
+check "空 segments 拒出（exit 1）" "1" "$rc"
+
+echo "== 6e. finalize: 字幕下载失败透传（--subtitle-error） =="
+mkdir -p "$SBOX/pkgerr"
+python3 "$META" finalize "$SBOX/dist_ch.json" --folder "$SBOX/pkgerr" \
+  --video-file "" --audio-file "raw/audio.mp3" \
+  --subtitle-lang "none" --subtitle-source "none" --needs-whisper 1 \
+  --subtitle-error "模拟: HTTP Error 412: 请求被风控" \
+  --has-danmaku 0 --has-comments 0 --frames-max 8 --frames-extracted 0 > "$SBOX/handoff_err.json"
+check "meta.subtitle.error 落盘" "模拟: HTTP Error 412: 请求被风控" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/pkgerr/raw/meta.json"))["subtitle"]["error"])')"
+check "失败时交接 subtitle_download_failed=true" "True" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/handoff_err.json"))["subtitle_download_failed"])')"
+check "成功路径 meta.subtitle 无 error 键" "no" "$(python3 -c 'import json;print("yes" if "error" in json.load(open("'$SBOX'/pkg/raw/meta.json"))["subtitle"] else "no")')"
+check "成功路径交接 subtitle_download_failed=false" "False" "$(python3 -c 'import json;print(json.load(open("'$SBOX'/handoff.json"))["subtitle_download_failed"])')"
+
 echo "== 7. finish: meta 装配 + 终态回写 + registry 损坏备份 + 字段补齐 =="
 PROJ="$SBOX/proj"; mkdir -p "$PROJ/archive"
 cp -r "$SBOX/pkg" "$PROJ/archive/demo"
@@ -227,6 +307,11 @@ bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" >/dev/n
 check "缺 summary.md 拒写" "1" "$rc"
 bash "$SKILL/scripts/pipeline_prepare.sh" finish --platform x --id y --title t --folder archive/demo >/dev/null 2>&1 && rc=0 || rc=1
 check "旧接口参数被拒" "1" "$rc"
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source asr >/dev/null 2>&1 && rc=0 || rc=1
+check "finish asr 枚举合法（回写成功）" "0" "$rc"
+check "registry 字幕终态=asr" "asr" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v9"]["subtitle_source"])')"
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source bogus >/dev/null 2>&1 && rc=0 || rc=1
+check "finish 非法来源被拒" "1" "$rc"
 
 # 并发 finish: 6 进程各写不同条目，全部落盘不丢（锁内 fsync 的回归测试）
 mkdir -p archive/conc
@@ -243,7 +328,7 @@ for i in 1 2 3 4 5 6; do
 done
 wait
 n=$(python3 -c 'import json;print(len(json.load(open("archive/registry.json"))["videos"]["some"]))')
-check "并发 finish 无丢失更新" "7" "$n"   # demo + 6 并发
+check "并发 finish 无丢失更新" "8" "$n"   # demo + demo2(asr 测试) + 6 并发
 
 echo "== 8. extract_frames 参数严格性 + 近重复帧剔除 =="
 mkdir -p "$SBOX/frames"
@@ -611,18 +696,100 @@ vrc=$?
 if [[ $vrc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+vrc)); echo "  ✗ verify 双形态沙箱共 $vrc 项失败"; fi
 rm -rf "$VDIR_MP"
 
-echo "== 17. init gitignore: 多P产物忽略规则模式化 =="
+echo "== 16b. verify: 候选可命中偏好却 selected=none → 警告行 =="
+VDIR_SUB=$(mktemp -d /tmp/vs-verifysub-XXXX)
+(
+  cd "$VDIR_SUB" || exit 9
+  f=0
+  bash "$PREP" init >/dev/null
+  python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+d = {"_type": "video", "id": "vsub", "title": "字幕矛盾样本",
+     "webpage_url": "https://www.bilibili.com/video/BV1subTESTxx/", "duration": 30,
+     "extractor_key": "BiliBili", "uploader_id": "u1", "chapters": [],
+     "subtitles": {"ai-zh": [{"ext": "srt", "url": "https://example.com/s"}]},
+     "automatic_captions": {}}
+Path(sys.argv[1], "info_sub.json").write_text(json.dumps(d))
+EOF
+  python3 "$SKILL/scripts/pipeline_meta.py" distill "$SBOX/info_sub.json" --out "$SBOX/dist_sub.json"
+  F="archive/2026-10/bilibili/BV1subTESTxx_字幕矛盾样本"
+  mkdir -p "$F/raw" "$F/evidence"
+  python3 "$SKILL/scripts/pipeline_meta.py" finalize "$SBOX/dist_sub.json" --folder "$F" \
+    --video-file "raw/video.mp4" --audio-file "raw/audio.mp3" \
+    --subtitle-lang none --subtitle-source none --needs-whisper 1 \
+    --subtitle-error "模拟: HTTP Error 412" \
+    --has-danmaku 0 --has-comments 0 --frames-max 8 --frames-extracted 0 >/dev/null
+  printf '# s\n' > "$F/summary.md"
+  echo "# e" > "$F/evidence/evidence.md"
+  bash "$PREP" finish --folder "$F" >/dev/null
+  out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
+  if [[ $rc -eq 0 && "$out" == *"字幕候选"*"selected=none"* ]]; then echo "  ✓ verify 警告: 候选可命中偏好但 selected=none 被提示"
+  else echo "  ✗ verify 未提示字幕候选矛盾: $out"; f=$((f+1)); fi
+  exit $f
+)
+subrc=$?
+if [[ $subrc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+subrc)); echo "  ✗ 字幕候选矛盾沙箱共 $subrc 项失败"; fi
+rm -rf "$VDIR_SUB"
+
+echo "== 17. init gitignore: 白名单托管块（迁移清理+整块重写+幂等） =="
 VDIR_GI=$(mktemp -d /tmp/vs-gi-XXXX)
 (
   cd "$VDIR_GI" || exit 9
   f=0
+  # 17a. 全新项目: init 产出白名单托管块
   bash "$PREP" init >/dev/null
-  grep -q 'archive/\*\*/evidence/danmaku_\*\.xml' .gitignore && echo "  ✓ danmaku_*.xml 忽略规则" \
-    || { echo "  ✗ 缺 danmaku_* 忽略规则"; f=$((f+1)); }
-  grep -q 'archive/\*\*/raw/video_\*' .gitignore && echo "  ✓ video_* 忽略规则" \
-    || { echo "  ✗ 缺 video_* 忽略规则"; f=$((f+1)); }
+  for pat in 'archive/\*\*' '!archive/\*\*/' '!archive/registry\.json' \
+             '!archive/\*\*/raw/meta\*\.json' '!archive/\*\*/raw/subtitle\*\.srt' \
+             '!archive/\*\*/summary\*\.md' '!archive/\*\*/evidence/evidence\*\.md' \
+             '!archive/\*\*/evidence/audience\*\.json'; do
+    grep -q "$pat" .gitignore && echo "  ✓ 白名单规则: $pat" \
+      || { echo "  ✗ 缺白名单规则: $pat"; f=$((f+1)); }
+  done
+  # 17b. 语义实测: 交付物可追踪、机械产物被忽略
+  mkdir -p archive/2026-10/x/FOO/raw archive/2026-10/x/FOO/evidence
+  git init -q .
+  touch archive/registry.json "archive/2026-10/x/FOO/raw/meta_01.json" \
+        "archive/2026-10/x/FOO/raw/subtitle_01.srt" "archive/2026-10/x/FOO/summary_01.md" \
+        "archive/2026-10/x/FOO/evidence/evidence_01.md" "archive/2026-10/x/FOO/evidence/audience_01.json" \
+        "archive/2026-10/x/FOO/raw/video_01.mp4" "archive/2026-10/x/FOO/raw/subtitle_download_01.err.log" \
+        "archive/2026-10/x/FOO/evidence/danmaku_01.xml"
+  git add -A 2>/dev/null
+  n_ok=$(git ls-files archive/ | wc -l | tr -d ' ')
+  [[ "$n_ok" == "6" ]] && echo "  ✓ 白名单语义: 6 类交付物入库" \
+    || { echo "  ✗ 白名单语义: 入库 $n_ok 个文件（期望 6）"; f=$((f+1)); }
+  # 17c. 旧黑名单迁移: 预置旧格式 .gitignore，init 后旧条目清除、用户本地规则保留
+  VDIR_MIG=$(mktemp -d /tmp/vs-mig-XXXX)
+  (
+    cd "$VDIR_MIG" || exit 9
+    mkdir -p archive cache
+    cat > .gitignore <<'MIG'
+# video-summarizer（由 pipeline_prepare.sh init 托管；缺失条目自动补回）
+cache/
+archive/**/raw/video.*
+archive/**/raw/asr_run*/
+archive/**/raw/subtitle_download*.err.log
+
+# 项目本地（非 skill 托管）
+.DS_Store
+my-local-rule/
+MIG
+    bash "$PREP" init >/dev/null
+    mf=0
+    grep -q 'archive/\*\*/raw/video\.\*' .gitignore && { echo "  ✗ 旧黑名单条目残留: video.*"; mf=$((mf+1)); }
+    grep -q 'subtitle_download\*\.err\.log' .gitignore && { echo "  ✗ 旧黑名单条目残留: subtitle_download"; mf=$((mf+1)); }
+    grep -q 'my-local-rule/' .gitignore && echo "  ✓ 用户本地规则保留" || { echo "  ✗ 用户本地规则被误删"; mf=$((mf+1)); }
+    grep -q '!archive/registry\.json' .gitignore && echo "  ✓ 白名单托管块已写入" || { echo "  ✗ 白名单托管块未写入"; mf=$((mf+1)); }
+    m1=$(md5 -q .gitignore); bash "$PREP" init >/dev/null; m2=$(md5 -q .gitignore)
+    [[ "$m1" == "$m2" ]] && echo "  ✓ 迁移后 init 幂等" || { echo "  ✗ 迁移后 init 不幂等"; mf=$((mf+1)); }
+    exit $mf
+  )
+  mrc=$?
+  if [[ $mrc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+mrc)); echo "  ✗ 黑名单迁移沙箱共 $mrc 项失败"; fi
+  rm -rf "$VDIR_MIG"
+  # 17d. 幂等: 托管块重复 init 不变
   g1=$(md5 -q .gitignore); bash "$PREP" init >/dev/null; g2=$(md5 -q .gitignore)
-  if [[ "$g1" == "$g2" ]]; then echo "  ✓ init 幂等（新模式追加后重复 init 不变）"
+  if [[ "$g1" == "$g2" ]]; then echo "  ✓ init 幂等（托管块整块重写后不变）"
   else echo "  ✗ init 不幂等"; f=$((f+1)); fi
   exit $f
 )

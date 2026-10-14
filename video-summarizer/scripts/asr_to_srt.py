@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """asr_to_srt.py —— asr transcript.json（asr/transcript/v1）→ 句级 SRT
 
-把 goodpeanuts/asr 的词级时间戳按「句末标点 + 停顿阈值」聚合为句级 segments，
+把 goodpeanuts/asr（Qwen/Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B 默认配置）
+的词级时间戳按「句末标点 + 停顿阈值」聚合为句级 segments，
 写出与官方字幕同构的 SRT，供 video-summarizer 后续流程（逐段详解、只看项、
 verify 时间戳检查）无差别消费。
 
@@ -13,6 +14,8 @@ verify 时间戳检查）无差别消费。
   - 断句: 句末标点（。！？；.!?;）或词间隙 > 0.8s 或句子时长 > 12s 硬切
   - 句子时间 = 首词 start ~ 末词 end（无 end 时取下一词 start 兜底）
 """
+
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
 
 import argparse
 import json

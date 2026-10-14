@@ -34,7 +34,7 @@
 注意这是「中文读者」默认偏好而非中立策略；候选分三级 manual（人工/CC）> ai-*
 （平台 AI 字幕）> auto（自动生成），ai-X 与 X 等价匹配（ai-zh ≈ zh）。
 subtitle_source 枚举: manual | auto | asr | whisper | none。
-（asr = 本地 Qwen3-ASR 转写（goodpeanuts/asr CLI，带临时词表识别偏置），
+（asr = 本地 Qwen/Qwen3-ASR-1.7B 转写（goodpeanuts/asr CLI，带临时词表识别偏置；模型为 CLI 默认值，实际取值以归档 raw/asr_run/manifest.json 为事实源），
 whisper = faster-whisper 第二兜底；needs_whisper=1 表示需本地转写，
 认知阶段经 transcribe_fallback.sh 单入口按 asr > whisper 顺序执行。）
 
@@ -379,7 +379,7 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
                  has_danmaku: int, has_comments: int, frames_max: int,
                  frames_extracted: int, uploader_id: str, upload_date: str,
                  account: str, part: int, is_multipage: int, course_page_count: int,
-                 context_terms: str = ""):
+                 context_terms: str = "", subtitle_error: str = ""):
     d = json.loads(Path(distilled_path).read_text())
     # 多P形态: meta/summary 等逐P产物带零填充后缀（meta_01.json / summary_01.md，
     # 1-based 对齐 ?p=N）；单视频形态保持无后缀旧命名（双形态，存量归档零迁移）。
@@ -409,10 +409,12 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "is_multipage": mp,
         "course_page_count": course_page_count or None,
         # 认知阶段若 whisper 兜底，finish 会回写终态到这里（meta.json 为字幕来源唯一事实源）
+        # error: 机械阶段字幕下载失败的降级留痕（stderr 尾部摘要；成功下载时缺席）
         "subtitle": {
             "selected": subtitle_lang,
             "source": subtitle_source,
             "candidates": {"manual": d["subs_manual"], "auto": d["subs_auto"]},
+            **({"error": subtitle_error} if subtitle_error else {}),
         },
         "chapters_count": len(d["chapters"]),
         "files": {"video": video_file, "audio": audio_file},
@@ -447,6 +449,8 @@ def cmd_finalize(distilled_path: str, folder: str, video_file: str, audio_file: 
         "audio_file": audio_file,
         "subtitle_lang": subtitle_lang,
         "subtitle_source": subtitle_source,
+        # 字幕下载失败已自动降级（true 时详情见 raw/subtitle_download*.err.log 与 meta.subtitle.error）
+        "subtitle_download_failed": bool(subtitle_error),
         "needs_whisper": needs_whisper,
         # 临时词表文件（raw/context_terms.txt 相对项目根路径；needs_whisper=1 时
         # 机械阶段已生成，供 asr --context 识别偏置；无则空）
@@ -522,6 +526,8 @@ def main():
     p2.add_argument("--is-multipage", type=int, default=0)
     p2.add_argument("--course-page-count", type=int, default=0)
     p2.add_argument("--context-terms", default="", help="临时词表文件路径（raw/context_terms.txt）")
+    p2.add_argument("--subtitle-error", default="",
+                    help="字幕下载失败的降级留痕（stderr 尾部摘要；成功下载时为空）")
 
     p3 = cmd.add_parser("sanitize", help="文件名消毒（单测/调试）")
     p3.add_argument("name")
@@ -561,7 +567,7 @@ def main():
                      args.has_danmaku, args.has_comments, args.frames_max,
                      args.frames_extracted, args.uploader_id, args.upload_date,
                      args.account, args.part, args.is_multipage, args.course_page_count,
-                     args.context_terms)
+                     args.context_terms, args.subtitle_error)
     elif args.cmd == "sanitize":
         print(sanitize_component(args.name))
     elif args.cmd == "cookie-platform":

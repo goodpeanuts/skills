@@ -16,6 +16,8 @@ uploader > collection）:
 去重大小写不敏感；每来源一组、组内按出现序；上限 150 行（防过度偏置）。
 """
 
+from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+
 import argparse
 import json
 import re
@@ -72,7 +74,14 @@ def extract_terms(text: str):
     # URL/邮箱整体剔除（它们的分段产物是纯噪音）
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", " ", text or "")
     text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+    # 跨空格合并「拉丁词+数字」二元组（RTX 5090 / M4 Max）：用不被 CJK_SPLIT
+    # 切分的 word joiner（U+2060）保护跨空格形态，产出时替换回空格
+    WJ = "⁠"
+    # 结尾不带 \b：CJK 与数字之间 Python re 不判词边界（\w 含 CJK），
+    # "RTX 5090首" 会因 \b 拒配；数字后跟字母数字截止即可
+    text = re.sub(r"\b([A-Z][A-Za-z]*)\s+(\d[A-Za-z0-9]*)", r"\g<1>" + WJ + r"\g<2>", text)
     for block in CJK_SPLIT_RE.split(text):
+        block = block.replace(WJ, " ").strip()
         block = block.strip()
         if not block or len(block) > MAX_TERM_LEN:
             continue

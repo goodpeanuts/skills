@@ -73,33 +73,61 @@ if [[ "$cmd" == "init" ]]; then
 import sys
 from pathlib import Path
 p = Path(sys.argv[1])
-entries = [
-    "# video-summarizer（由 pipeline_prepare.sh init 托管；缺失条目自动补回）",
+START = "# >>> video-summarizer（托管块: init 整块重写；勿手工混入条目）"
+END = "# <<< video-summarizer"
+# 白名单: 归档内只追踪认知产物与登记簿，新增机械产物默认忽略（fail-closed）
+block = [
+    START,
+    "# 白名单: 归档内只追踪认知产物与登记簿，新增机械产物默认忽略（fail-closed）",
+    "archive/**",
+    "!archive/**/",
+    "!archive/registry.json",
+    "!archive/**/raw/meta*.json",
+    "!archive/**/raw/subtitle*.srt",
+    "!archive/**/summary*.md",
+    "!archive/**/evidence/evidence*.md",
+    "!archive/**/evidence/audience*.json",
+    "# 项目根取材缓存（cookie 会话，绝不入 Git）",
     "cache/",
-    "archive/**/raw/video.*",
-    "archive/**/raw/audio.*",
-    "archive/**/evidence/frames/",
-    "archive/**/evidence/danmaku.xml",
-    "archive/**/evidence/comments.info.json",
-    "archive/**/evidence/chapters.json",
-    "archive/**/*.stale",
-    # 多P形态: 逐P产物带 _NN 后缀，忽略规则须模式化——精确名规则
-    # （如 evidence/danmaku.xml）不再命中 danmaku_01.xml，会从"忽略"翻成被追踪
-    "archive/**/raw/video_*",
-    "archive/**/raw/audio_*",
-    "archive/**/evidence/danmaku_*.xml",
-    "archive/**/evidence/comments_*.info.json",
-    "archive/**/evidence/chapters_*.json",
+    END,
 ]
+# 黑名单时代的托管条目与关联注释（迁移时一并清除；用户本地规则保留）
+LEGACY = {
+    "# video-summarizer（由 pipeline_prepare.sh init 托管；缺失条目自动补回）",
+    "cache/", "archive/**/raw/video.*", "archive/**/raw/audio.*",
+    "archive/**/evidence/frames/", "archive/**/evidence/danmaku.xml",
+    "archive/**/evidence/comments.info.json", "archive/**/evidence/chapters.json",
+    "archive/**/*.stale", "archive/**/raw/video_*", "archive/**/raw/audio_*",
+    "archive/**/evidence/danmaku_*.xml", "archive/**/evidence/comments_*.info.json",
+    "archive/**/evidence/chapters_*.json", "archive/**/raw/asr_run*/",
+    "archive/**/raw/context_terms*.txt", "archive/**/raw/.asr_*",
+    "archive/**/raw/subtitle_download*.err.log",
+    "# asr 转写产物（模式化规则同时覆盖单P无后缀与多P _NN 后缀；磁盘保留供",
+    "# verify 溯源/--resume，不入 Git——asr_run 内含 source.wav 大文件）",
+    "# 字幕下载失败日志（原始 stderr 留档，磁盘保留供排查，不入 Git）",
+}
 text = p.read_text() if p.exists() else ""
-have = {l.strip() for l in text.splitlines()}
-missing = [e for e in entries if e not in have]
-if missing:
-    sep = "" if (not text or text.endswith("\n")) else "\n"
-    p.write_text(text + sep + "\n".join(missing) + "\n")
-    print(f".gitignore: 补齐 {len(missing)} 条")
+lines = text.splitlines()
+if START in lines:  # 已是托管块: 整块替换，块外用户规则原样保留
+    out, inside = [], False
+    for l in lines:
+        if l == START:
+            inside = True; out.extend(block); continue
+        if l == END:
+            inside = False; continue
+        if not inside:
+            out.append(l)
+    new_text = "\n".join(out).rstrip("\n") + "\n"
+else:  # 旧黑名单格式（或无文件）: 清除旧托管条目后前置新托管块
+    kept = [l for l in lines if l.strip() not in LEGACY]
+    while kept and not kept[0].strip():
+        kept.pop(0)
+    new_text = "\n".join(block) + ("\n\n" + "\n".join(kept) + "\n" if kept else "\n")
+if new_text != text:
+    p.write_text(new_text)
+    print(".gitignore: 已切换为白名单托管块")
 else:
-    print(".gitignore: 已就位")
+    print(".gitignore: 已就位（白名单托管块）")
 PY
   echo "init 完成: archive/ cache/ .gitignore"
   exit 0
@@ -121,12 +149,12 @@ if [[ "$cmd" == "finish" ]]; then
     shift 2
   done
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
-  case "$ssrc" in ""|manual|auto|asr|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|asr|whisper|none（实得: $ssrc）" ;; esac
+  case "$ssrc" in ""|manual|auto|asr|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|asr|whisper|none（实得: ${ssrc}）" ;; esac
   folder=${folder%/}
   # meta 定位: 多P课程目录用 --part 定位 raw/meta_NN.json，单P用 raw/meta.json
   meta_rel="raw/meta.json"
   if [[ -n "$part" ]]; then
-    [[ "$part" =~ ^[0-9]+$ ]] || die "finish: --part 须为正整数（实得: $part）"
+    [[ "$part" =~ ^[0-9]+$ ]] || die "finish: --part 须为正整数（实得: ${part}）"
     meta_rel="raw/meta_$(printf '%02d' "$part").json"
   elif [[ ! -f "$folder/$meta_rel" ]] && ls "$folder"/raw/meta_*.json >/dev/null 2>&1; then
     die "finish: $folder 是多P课程目录，请用 --part N 指定分P"
@@ -320,6 +348,23 @@ for folder in folders:
             m = {}
         if m.get("course_page_count"):
             course_total = max(course_total or 0, m["course_page_count"])
+        # 字幕候选与选中矛盾（机械阶段下载静默失败的历史指纹）:
+        # 候选里存在能命中字幕偏好的语言、却被记为 selected=none → 警告并提示处置
+        sub = m.get("subtitle") or {}
+        cands = list((sub.get("candidates") or {}).get("manual") or []) + \
+                list((sub.get("candidates") or {}).get("auto") or [])
+        if (sub.get("selected") or "none") == "none" and cands:
+            prefs = ["zh-Hans", "zh", "zh-Hant", "en"]
+            if m.get("language"):
+                prefs = prefs[:3] + [m["language"]] + prefs[3:]
+
+            def _pref_hit(c, pf):
+                return c == pf or c.startswith(pf + "-") or c == "ai-" + pf or c.startswith("ai-" + pf + "-")
+
+            if any(_pref_hit(c, pf) for c in cands for pf in prefs):
+                info_lines.append(
+                    f"警告: {folder}: 字幕候选 {cands} 可命中偏好但 selected=none"
+                    f"——字幕下载曾失败降级；检查 Cookie 后重跑 prepare 重采字幕")
     # 7. .stale 残留（--force 重采后认知阶段未收尾; 后缀变体一并覆盖）
     for st in list(f.glob("*.stale")) + list((f / "evidence").glob("*.stale")):
         p(folder, f".stale 残留: {st.relative_to(f)}（重采后未完成新认知产物）")
@@ -512,7 +557,7 @@ if [[ "$cmd" == "quick" ]]; then
     echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结取材" >&2
     hit=""
   fi
-  subtitle_file="" audio_file="" needs_whisper=0
+  subtitle_file="" audio_file="" needs_whisper=0 sel_error=""
   if [[ -n "$hit" ]]; then
     # 已归档: 免取材（读既有 summary.md 即可），零下载
     sel_lang=archived; sel_source=archived
@@ -520,11 +565,31 @@ if [[ "$cmd" == "quick" ]]; then
     sub_flag=--write-subs
     sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
     [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
+    # 快模式项目零写入: 下载日志与 Cookie 刷新产物都落 $outdir；失败重试一次
+    sub_dl_log="$outdir/subtitle_download.err.log"
     yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-      ${cookie_args[@]+"${cookie_args[@]}"} -o "$outdir/subtitle" "$url" >/dev/null 2>&1 || true
+      ${cookie_args[@]+"${cookie_args[@]}"} -o "$outdir/subtitle" "$url" >"$sub_dl_log" 2>&1 || true
     sub_file=$(ls "$outdir"/subtitle.*.srt 2>/dev/null | head -1 || true)
     if [[ -n "$sub_file" && "$sub_file" != "$outdir/subtitle.srt" ]]; then
       mv -f "$sub_file" "$outdir/subtitle.srt"
+    fi
+    if [[ ! -f "$outdir/subtitle.srt" ]]; then
+      echo "警告: 字幕($sel_lang)首次下载失败——$outdir 内刷新 Cookie 后重试（日志: ${sub_dl_log}）" >&2
+      plat_ck=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
+      if [[ -n "$plat_ck" ]] && python3 "$COOKIES" ensure --platform "$plat_ck" --url "$url" \
+           --cache-dir "$outdir" >/dev/null 2>&1 && [[ -f "$outdir/_${plat_ck}.cookies.txt" ]]; then
+        cookie_args=(--cookies "$outdir/_${plat_ck}.cookies.txt")
+      fi
+      yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
+        ${cookie_args[@]+"${cookie_args[@]}"} -o "$outdir/subtitle" "$url" >"$sub_dl_log" 2>&1 || true
+      sub_file=$(ls "$outdir"/subtitle.*.srt 2>/dev/null | head -1 || true)
+      if [[ -n "$sub_file" && "$sub_file" != "$outdir/subtitle.srt" ]]; then
+        mv -f "$sub_file" "$outdir/subtitle.srt"
+      fi
+      if [[ ! -f "$outdir/subtitle.srt" ]]; then
+        sel_error=$(tail -n 3 "$sub_dl_log" 2>/dev/null | tr '\n' ' ' | cut -c1-200)
+        echo "警告: 字幕($sel_lang)下载失败（已含 Cookie 刷新重试）——降级音频转写；详情: $sub_dl_log" >&2
+      fi
     fi
     [[ -f "$outdir/subtitle.srt" ]] && subtitle_file="$outdir/subtitle.srt"
   fi
@@ -536,10 +601,10 @@ if [[ "$cmd" == "quick" ]]; then
     [[ -n "$audio_file" ]] || die "快速模式: 字幕与音频均不可得（网络/Cookie 问题，见 stderr）"
   fi
   python3 - "$outdir" "$hit" "$subtitle_file" "$audio_file" "$needs_whisper" \
-    "$sel_lang" "$sel_source" "$id" "$platform" "$host" "$title" "$dur" <<'PY'
+    "$sel_lang" "$sel_source" "$id" "$platform" "$host" "$title" "$dur" "$sel_error" <<'PY'
 import json, sys
 (outdir, hit, sub, audio, nw, slang, ssrc,
- vid, plat, host, title, dur) = sys.argv[1:13]
+ vid, plat, host, title, dur, serr) = sys.argv[1:14]
 print(json.dumps({
     "mode": "quick", "tmp": outdir,
     "registry_hit": hit or "",
@@ -548,6 +613,7 @@ print(json.dumps({
     "subtitle_file": sub, "audio_file": audio,
     "subtitle_lang": slang, "subtitle_source": ssrc,
     "needs_whisper": int(nw),
+    "subtitle_download_failed": bool(serr),
 }, ensure_ascii=False))
 PY
   exit 0
@@ -724,9 +790,10 @@ h = {
     "subtitle_lang": sub.get("selected", "none"),
     "subtitle_source": sub.get("source", "none"),
     "needs_whisper": int(bool(m.get("needs_whisper"))),
-    # 词表路径与后缀形态对齐（多P context_terms_NN.txt / 单P context_terms.txt）
+    # 词表路径与后缀形态对齐（多P context_terms_NN.txt / 单P context_terms.txt）；
+    # 项目根相对全路径（与 video_file/audio_file 契约一致）
     "context_terms": next(
-        (str(p.relative_to(Path(pkg))) for p in [
+        (str(p) for p in [
             Path(pkg, "raw", f"context_terms_{part:02d}.txt" if is_mp else "context_terms.txt"),
         ] if p.exists()), ""),
     "has_danmaku": int(bool(cap.get("danmaku"))),
@@ -760,7 +827,7 @@ for mp in sorted(Path(pkg, "raw").glob("meta*.json")):
         break
 PY
 )
-      [[ -n "$foreign" ]] && die "目录冲突: $pkg 内发现非本课程（$course_id）的 meta（$foreign）——请人工检查"
+      [[ -n "$foreign" ]] && die "目录冲突: $pkg 内发现非本课程（${course_id}）的 meta（${foreign}）——请人工检查"
     fi
     [[ "$is_multipage" != "True" ]] && \
       die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
@@ -826,15 +893,37 @@ else
 fi
 
 # 字幕: 按蒸馏结果下载选中语言（manual/ai 走 write-subs，auto 走 write-auto-subs；
-# B 站字幕需登录态，必须带 cookie）
+# B 站字幕需登录态，必须带 cookie）。失败不静默: stderr 落盘留痕 + 刷新 Cookie
+# 重试一次，仍失败才降级本地转写（降级原因随 meta.subtitle.error / 交接 JSON 透出）
+sub_dl_log="$pkg/raw/subtitle_download${sfx}.err.log"
+sel_error=""
+sub_dl_once() {
+  yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle${sfx}" "$url" >"$sub_dl_log" 2>&1 || true
+  local f
+  f=$(ls "$pkg"/raw/subtitle${sfx}.*.srt 2>/dev/null | head -1 || true)
+  [[ -n "$f" && "$f" != "$pkg/raw/subtitle${sfx}.srt" ]] && mv -f "$f" "$pkg/raw/subtitle${sfx}.srt"
+  [[ -f "$pkg/raw/subtitle${sfx}.srt" ]]
+}
 if [[ "$sel_lang" != "none" ]]; then
   sub_flag=--write-subs
   sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
   [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
-  yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle${sfx}" "$url" >/dev/null 2>&1 || true
-  sub_file=$(ls "$pkg"/raw/subtitle${sfx}.*.srt 2>/dev/null | head -1 || true)
-  [[ -n "$sub_file" && "$sub_file" != "$pkg/raw/subtitle${sfx}.srt" ]] && mv -f "$sub_file" "$pkg/raw/subtitle${sfx}.srt"
+  if ! sub_dl_once; then
+    echo "警告: 字幕($sel_lang)首次下载失败——刷新 Cookie 后重试一次（日志: ${sub_dl_log}）" >&2
+    plat_ck=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
+    if [[ -n "$plat_ck" ]] && python3 "$COOKIES" ensure --platform "$plat_ck" --url "$url" \
+         --cache-dir cache >/dev/null 2>&1 && [[ -f "cache/_${plat_ck}.cookies.txt" ]]; then
+      cookie_file="cache/_${plat_ck}.cookies.txt"
+      cookie_copy
+      cookie_args=()
+      [[ -n "$cookie_file" && -f "$cookie_file" ]] && cookie_args=(--cookies "$cookie_file")
+    fi
+    if ! sub_dl_once; then
+      sel_error=$(tail -n 3 "$sub_dl_log" 2>/dev/null | tr '\n' ' ' | cut -c1-200)
+      echo "警告: 字幕($sel_lang)下载失败（已含 Cookie 刷新重试）——降级本地转写；详情: $sub_dl_log" >&2
+    fi
+  fi
 fi
 needs_whisper=0
 context_terms_file=""
@@ -843,8 +932,9 @@ if [[ ! -f "$pkg/raw/subtitle${sfx}.srt" ]]; then
   if [[ -n "$audio_file" ]]; then
     needs_whisper=1
     # 临时词表（asr --context 识别偏置）: 从标题/简介/tags/章节规则抽取专有
-    # 名词；失败非致命（词表是增益不是前置），asr 空词表照跑、whisper 本就不用词表
-    context_terms_file="raw/context_terms${sfx}.txt"
+    # 名词；失败非致命（词表是增益不是前置），asr 空词表照跑、whisper 本就不用词表。
+    # 路径基准与其他 *_file 契约字段一致: 项目根相对全路径（认知阶段直接消费）
+    context_terms_file="$pkg/raw/context_terms${sfx}.txt"
     if ! python3 "$BUILD_TERMS" "$tmpdir/distilled.json" \
          --out "$pkg/raw/context_terms${sfx}.txt" 2>/dev/null; then
       context_terms_file=""
@@ -940,5 +1030,6 @@ python3 "$META" finalize "$tmpdir/distilled.json" \
   --has-comments "$has_comments" --frames-max "$frames_max" \
   --frames-extracted "$frames_extracted" \
   --uploader-id "$uploader_id" --upload-date "$upload_date" --account "$account" \
+  --subtitle-error "$sel_error" \
   --part "${part:-0}" --is-multipage "$([[ "$is_multipage" == "True" ]] && echo 1 || echo 0)" \
   --course-page-count "${page_count:-0}"

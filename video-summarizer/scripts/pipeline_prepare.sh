@@ -64,6 +64,46 @@ jget() { python3 -c 'import json,sys
 v = json.load(open(sys.argv[1])).get(sys.argv[2])
 print("" if v is None else v)' "$1" "$2"; }
 
+# find_project_root: 从「当前 cwd 向上」找含 .git/config 的最近祖先目录
+# 失败再 fallback 从 SKILL_DIR 向上找(如调用方 cwd 在用户 home 等无 git 区域时)
+# 用途: finish/verify 对 folder 的相对路径兜底——Agent 在任意 cwd 调用时,
+# 若 cwd 不是项目根 且 folder 相对项目根存在但相对 cwd 不存在,自动 cd 过去.
+# 不动 prepare/quick/lookup:那些分支的 cwd 归一是语义决定(workspace 初始化),
+# 退让反而遮盖真正错误.
+find_project_root() {
+  local d="$PWD"
+  while [[ "$d" != "/" ]]; do
+    [[ -f "$d/.git/config" ]] && { printf '%s\n' "$d"; return 0; }
+    d=$(dirname "$d")
+  done
+  d="$SKILL_DIR"
+  while [[ "$d" != "/" ]]; do
+    [[ -f "$d/.git/config" ]] && { printf '%s\n' "$d"; return 0; }
+    d=$(dirname "$d")
+  done
+  return 1
+}
+
+# normalize_cwd_for_folder: folder 指向的归档必须能以「项目根相对」解析到
+# 现状: finish/verify 直接用 $folder 拼 meta/summary/registry 路径,
+# 当调用方 cwd != 项目根时会报"meta.json 不存在"假阴性——
+# 本函数:有以下三种情况则 cd 到项目根
+#   1) cwd 不是项目根 且 folder 相对项目根存在 且 folder 相对 cwd 不存在
+# 负面的情况(两个位置都不存在,或只相对 cwd 存在)留给原逻辑报错.
+normalize_cwd_for_folder() {
+  local folder="${1%/}"
+  [[ -z "$folder" ]] && return 0
+  local root
+  root=$(find_project_root) || return 0   # 找不到项目根(未知环境)不动
+  [[ "$PWD" == "$root" ]] && return 0     # 已在项目根
+  if [[ -f "$root/$folder/raw/meta.json" || -f "$root/$folder/raw/meta_01.json" ]] \
+     && [[ ! -f "$PWD/$folder/raw/meta.json" && ! -f "$PWD/$folder/raw/meta_01.json" ]]; then
+    echo "(cwd 归一化: 切到项目根 $root; folder 以项目根相对解析)" >&2
+    cd "$root" || return 1
+  fi
+  return 0
+}
+
 cmd=${1:-}; [[ -n "$cmd" ]] || usage
 
 # ---------- init: 项目初始化（幂等） ----------
@@ -151,6 +191,9 @@ if [[ "$cmd" == "finish" ]]; then
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
   case "$ssrc" in ""|manual|auto|asr|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|asr|whisper|none（实得: ${ssrc}）" ;; esac
   folder=${folder%/}
+  # cwd 归一化: folder 以项目根相对解析——Agent 在归档目录下跑 finish 时
+  # 以前在 assert $folder/raw/meta.json 处报假阴性,现在自动 cd 到项目根
+  normalize_cwd_for_folder "$folder" || die "finish: cwd 归一化失败（无法切到项目根）"
   # meta 定位: 多P课程目录用 --part 定位 raw/meta_NN.json，单P用 raw/meta.json
   meta_rel="raw/meta.json"
   if [[ -n "$part" ]]; then
@@ -248,6 +291,22 @@ if [[ "$cmd" == "verify" ]]; then
     esac
     shift 2
   done
+  # cwd 归一化: 与 finish 同规则——Agent 在归档目录下跑 finish 后立即可
+  # 再 verify --folder; 缺省 --folder 时也试将 cwd 切到项目根,否则 scan archive/*/*/*
+  # 会以非项目根 cwd 的相对路径 silent fail 直至 PASS 空转
+  vfolder=${vfolder%/}
+  if [[ -n "$vfolder" ]]; then
+    normalize_cwd_for_folder "$vfolder" || true
+  else
+    # 缺省 --folder:如果没 scan 到任何 archive 项目,切到项目根再试一次
+    _root=$(find_project_root) || _root=""
+    if [[ -n "$_root" && "$PWD" != "$_root" && -d "$_root/archive" ]]; then
+      if ! compgen -G "$PWD/archive/*/*/*" >/dev/null && compgen -G "$_root/archive/*/*/*" >/dev/null; then
+        echo "(cwd 归一化: 切到项目根 $_root; verify 扫本仓 archive/)" >&2
+        cd "$_root" || true
+      fi
+    fi
+  fi
   python3 - "$REGISTRY" "$vfolder" <<'PY'
 import json, re, sys
 from pathlib import Path

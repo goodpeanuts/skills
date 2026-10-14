@@ -151,6 +151,8 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish --folder "<folder>" \
 
 finish 从 `<folder>/raw/meta.json` 自动装配全部字段（杜绝手抄漂移；**多P课程目录必须带 `--part N`** 定位 `raw/meta_NN.json`），校验对应 summary（`summary.md` / `summary_NN.md`）已存在后带文件锁回写，registry 条目含 `part`/`summary_file`；本地转写场景必须按 transcribe_fallback.sh 输出的 engine 传 `--subtitle-source asr`（或 `whisper`），终态会同步回写 meta（meta 是字幕来源的唯一事实源）。
 
+**cwd 提醒**：finish 的 `--folder` 是**项目根相对**路径，registry.folder 字段也强绑定该语义。脚本内置 cwd 归一化（cd 不是项目根但 folder 相对项目根存在时自动 cd 过去并空提示），但写文档/复制命令时**养成从项目根发命令的习惯**——在归档目录里 cd 太深时其它相对路径参数（如 `--subtitle-source`）将保持解析正确，但 folder 字段必须始终相对项目根。
+
 ### Step 4: 交付验收（强制闸门）
 
 ```bash
@@ -159,6 +161,8 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" verify                        # �
 ```
 
 verify 程序化检查交付完整性（双形态）：单P目录查 `summary.md`/`evidence/evidence.md`/`raw/meta.json`；多P课程目录**逐P**查 `summary_NN.md`/`evidence/evidence_NN.md`/`raw/meta_NN.json`（**部分完成合法**——只验已采集的P，并输出"课程 N/M P 已总结"信息行）、registry 已逐P登记、summary 帧插图引用的帧文件真实存在（含 `pNN/` 路径）、行文/mermaid 无非法时间戳、无 `.stale` 残留。**输出 FAIL（exit 1）即未达交付标准**，逐条修复后重跑至 PASS。历史教训：曾发生"写完 summary 直接交付、漏跑 finish"导致 registry 缺条目、查重失效——verify 即为此类流程遗漏的程序化兜底。
+
+**cwd 提醒**：`verify --folder` 与 finish 同规则——folder 严格按项目根相对解析，脚本已内置 cwd 归一化兜底（finish 后立即在任意 cwd 跑 verify 也能命中）。缺省 `--folder` 时会扫当前 cwd 的 `archive/*/*/*`，**不在项目根时会扫到 0 个 folder 而 PASS 空转**——缺省全仓扫描时务必从项目根调用（脚本会在找到项目根但 cwd 错位且 cwd 下扫不到 archive 时自动 cd 过去并空提示）。
 
 ## Platform Capabilities（platforms.json 声明）
 
@@ -219,6 +223,14 @@ B 站常把整门课放进一个 BV 的多个分P（如斯坦福 CS183B = 1 BV �
 - **B 站风控（HTTP 412/352）**：稍后重试或补充 buvid Cookie
 - **目录冲突**：归档目录已存在、registry 未登记、meta.json 归属不一致 → 报错拒跑（meta 一致则自动续跑），人工检查后处理
 - **registry 损坏**：读侧（lookup/prepare 查重）告警并视为无记录；写侧（finish）自动备份 `registry.json.corrupt-<时间戳>` 后重建，不静默丢历史
+
+### YouTube 采集环境守则
+
+- **timedtext 字幕 429**：YouTube IP 级冷却（≈30 分钟）。不要换 Cookie、不要绕过——等冷却结束再试，或直接走 `transcribe_fallback.sh` asr 兜底（词表缺席也能跑，只是失去偏置增益）
+- **curl_cffi/impersonation 是反面教材**：实验过注入 yt-dlp 试图消 impersonation 警告，反而导致 video CDN 403 完全无法下载（已 `uv tool install yt-dlp --force` 回退）。**不要再试**，遇到 429 就接受冷却或走 asr
+- **video CDN 偶发 403**（签名 URL 过期/临时风控）：重试取新签名 URL 即可。探测窗口：`yt-dlp --get-url <url>` 拿到签名 URL 后 `curl -r 0-1023 <url>` 应返回 **206**——能 206 就是已出黑名单窗口
+- **YouTube bot 墙**：yt-dlp 内部走 deno 兜底，无需干预；不建议自行加 Node 或第三方 wrapper
+- **冷却期间处置**：registry 已登记的同款遇 429 → 直接读归档；新视频 429 → 告知用户预计冷却时长并主动提议赴 asr 兜底，**不要静默等待或连续重试**（每次 4xx 都会延长冷却）
 
 ## Notes
 

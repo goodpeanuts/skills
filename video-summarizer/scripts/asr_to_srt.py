@@ -13,6 +13,7 @@ verify 时间戳检查）无差别消费。
   - 词按 start 升序处理（未知时间戳的词段跳过——asr 不伪造零秒）
   - 断句: 句末标点（。！？；.!?;）或词间隙 > 0.8s 或句子时长 > 12s 硬切
   - 句子时间 = 首词 start ~ 末词 end（无 end 时取下一词 start 兜底）
+  - Latin 词间补空格、CJK 紧贴（merge_tokens）——修复拉丁文本词间粘连
 """
 
 from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
@@ -43,6 +44,36 @@ def load_segments(transcript: dict):
     return out
 
 
+def merge_tokens(tokens):
+    """拼合 tokens 保留原生空白——Latin 词间可能有空格、CJK 紧贴。
+
+    对任意相邻两个 token,如果后一个不是以空白开头(单引号空格),且前一个是
+    Latin 结尾(含 ASCII 字母/数字主字符)且后一个是 Latin 开头,在之间补一个空格。
+    CJK 词紧贴不加。
+
+    上游 Qwen3-ForcedAligner 对英文通常给裸词(无前导空格),对中文给整段——
+    这个规则让两种输入都得到粗放但可读的合并文本。
+    """
+    if not tokens:
+        return ""
+    out = tokens[0]
+    for prev, tok in zip(tokens, tokens[1:]):
+        if not tok:
+            continue
+        # 已有原生分隔(前 token 尾或当前 token 头有空白)
+        if out.endswith((" ", "\n")) or tok.startswith((" ", "\n")):
+            out += tok
+            continue
+        prev_last = out.rstrip()[-1] if out.rstrip() else ""
+        # 拉丁-拉丁(或数字)相邻且两端无空格:补空格
+        if (prev_last and re.match(r"[A-Za-z0-9]", prev_last)
+                and re.match(r"[A-Za-z0-9]", tok[0])):
+            out += " " + tok
+        else:
+            out += tok
+    return out
+
+
 def aggregate(words):
     """词级 [(start, end, text)] → 句级 [(start, end, text)]。"""
     sentences = []
@@ -55,14 +86,14 @@ def aggregate(words):
         gap = start - (cur_end if cur_end is not None else start)
         hard_cut = (cur_end is not None and cur_end - cur_start > MAX_SENT_DURATION)
         if gap > MAX_GAP or hard_cut or SENT_END_RE.search(cur_words[-1]):
-            sentences.append((cur_start, cur_end, "".join(cur_words)))
+            sentences.append((cur_start, cur_end, merge_tokens(cur_words)))
             cur_start, cur_end, cur_words = start, end, [text]
         else:
             if end is not None:
                 cur_end = end if cur_end is None else max(cur_end, end)
             cur_words.append(text)
     if cur_words:
-        sentences.append((cur_start, cur_end, "".join(cur_words)))
+        sentences.append((cur_start, cur_end, merge_tokens(cur_words)))
 
     # end 缺失兜底: 取下一句 start；末句无 end 则 start + 2s
     fixed = []

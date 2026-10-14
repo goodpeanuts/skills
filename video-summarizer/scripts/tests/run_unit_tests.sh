@@ -268,6 +268,25 @@ check "无时间戳词被跳过" "no" "$(grep -q "无时间戳" "$SBOX/sub.srt" 
 python3 "$A2S" "$SBOX/transcript_empty.json" --out "$SBOX/sub_empty.srt" 2>/dev/null && rc=0 || rc=1
 check "空 segments 拒出（exit 1）" "1" "$rc"
 
+# 6d+ English 词间粘连修复 — merge_tokens 应保留/补空格
+python3 - "$SBOX" <<'EOF'
+import json, sys
+from pathlib import Path
+sbox = Path(sys.argv[1])
+words = [
+    {"id": 0, "start": 0.0, "end": 0.2, "text": "I"},
+    {"id": 1, "start": 0.2, "end": 0.4, "text": "can"},
+    {"id": 2, "start": 0.4, "end": 0.7, "text": "press"},
+    {"id": 3, "start": 0.7, "end": 1.1, "text": "the"},
+    {"id": 4, "start": 1.1, "end": 1.6, "text": "button"},
+    {"id": 5, "start": 1.6, "end": 2.0, "text": "."},
+]
+(sbox / "transcript_en.json").write_text(json.dumps(
+    {"schema": "asr/transcript/v1", "text": "x", "language": "English", "segments": words}))
+EOF
+python3 "$A2S" "$SBOX/transcript_en.json" --out "$SBOX/sub_en.srt" 2>/dev/null
+check "英文词间补空格(I can)" "I can press the button." "$(sed -n '3p' "$SBOX/sub_en.srt")"
+
 echo "== 6e. finalize: 字幕下载失败透传（--subtitle-error） =="
 mkdir -p "$SBOX/pkgerr"
 python3 "$META" finalize "$SBOX/dist_ch.json" --folder "$SBOX/pkgerr" \
@@ -796,6 +815,96 @@ MIG
 grc=$?
 if [[ $grc -eq 0 ]]; then pass=$((pass+1)); else fail=$((fail+grc)); echo "  ✗ gitignore 沙箱共 $grc 项失败"; fi
 rm -rf "$VDIR_GI"
+
+echo "== 18. lint_bash_gotchas: bash 陷阱静态扫描（\$var+全角 / 函数尾 [[ ]]&&cmd 无 return / local 同行互引） =="
+LINT="$SKILL/scripts/lint_bash_gotchas.py"
+LBOX="$SBOX/lintfixtures"
+mkdir -p "$LBOX"
+
+# 18a. 规则 A 检出 raw $var+全角(fixture 带 lint-exempt 标记——她现实不被规则判定为反例)
+cat > "$LBOX/ruleA_bad.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+sub="x"
+echo "警告: 下载失败（日志: $sub）" >&2
+EOF
+if python3 "$LINT" "$LBOX/ruleA_bad.sh" >/dev/null 2>&1; then
+  bad "lint 规则 A 应检出 \$var+全角 但未检出"
+else
+  ok "lint 规则 A 检出 raw \$var+全角"
+fi
+
+# 18b. 规则 A 豁免: ${var}+全角 与位置参数 $1+全角
+cat > "$LBOX/ruleA_ok.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+sub="x"
+echo "（日志: ${sub}）"
+echo "pos: $1（接口）"
+EOF
+if python3 "$LINT" "$LBOX/ruleA_ok.sh" >/dev/null 2>&1; then
+  ok "lint 规则 A \${var} 与 \$1 位置参数豁免（PASS）"
+else
+  bad "lint 规则 A \${var} 与 \$1 应豁免却被检出"
+fi
+
+# 18c. 规则 B 检出函数尾 [[ ]] && cmd 无 return(fixture 带 lint-exempt)
+cat > "$LBOX/ruleB_bad.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+f() {
+  local x="$1"
+  echo "go: $x"
+  [[ -n "$x" ]] && echo "has"
+}
+f hello
+EOF
+if python3 "$LINT" "$LBOX/ruleB_bad.sh" >/dev/null 2>&1; then
+  bad "lint 规则 B 应检出函数尾 [[ ]] && cmd 但未检出"
+else
+  ok "lint 规则 B 检出函数尾 [[ ]] && cmd 无 return"
+fi
+
+# 18d. 规则 B 豁免: 函数有显式 return
+cat > "$LBOX/ruleB_ok.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+f() {
+  local x="$1"
+  [[ -n "$x" ]] && echo "has"
+  return 0
+}
+f hello
+EOF
+if python3 "$LINT" "$LBOX/ruleB_ok.sh" >/dev/null 2>&1; then
+  ok "lint 规则 B 函数带 return 豁免（PASS）"
+else
+  bad "lint 规则 B 有 return 应豁免却被检出"
+fi
+
+# 18e. 规则 C 检出 local 同行互引(fixture 带 lint-exempt)
+cat > "$LBOX/ruleC_bad.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+f() {
+  local base="$1" top=$base/plus
+  echo "$top"
+}
+f x
+EOF
+if python3 "$LINT" "$LBOX/ruleC_bad.sh" >/dev/null 2>&1; then
+  bad "lint 规则 C 应检出 local 同行互引 但未检出"
+else
+  ok "lint 规则 C 检出 local 同行互引"
+fi
+
+# 18f. 扫 skill 全部 .sh 零检出(防御 lint 假阳性 on real code)
+if python3 "$LINT" >/dev/null 2>&1; then
+  ok "lint 扫 skill 全部 .sh 零检出（PASS）"
+else
+  python3 "$LINT" 2>&1 | head -20
+  bad "lint 扫 skill 非零退出(上面详情)"
+fi
 
 echo ""
 echo "===== 结果: pass=$pass fail=$fail ====="

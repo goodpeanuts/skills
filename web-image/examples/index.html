@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>web-image · 示例画廊</title>
+<link rel="stylesheet" href="../assets/studio.css">
+<style>
+:root{
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --serif:"Songti SC","Source Han Serif SC",Georgia,"Times New Roman",serif;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+}
+.board{ font-family:var(--sans); }
+
+/* ---------- 1. 头像 1:1 · 几何字标 ---------- */
+.avatar{ background:#12100e; display:grid; place-items:center; }
+.avatar .mark{
+  width:560px; height:560px; border-radius:50%;
+  background:conic-gradient(from 210deg,#ff6b2c,#ffb020 40%,#ff3d6e 78%,#ff6b2c);
+  display:grid; place-items:center; position:relative;
+}
+.avatar .mark::after{
+  content:""; position:absolute; inset:44px; border-radius:50%;
+  background:#12100e;
+}
+.avatar .glyph{
+  position:relative; z-index:1; font-family:var(--serif); font-weight:700;
+  font-size:300px; line-height:1; color:#fff8f0; letter-spacing:-.04em; margin-top:-14px;
+}
+.avatar .ring{
+  position:absolute; inset:150px; border:2px solid rgba(255,255,255,.16); border-radius:50%;
+}
+.grain{
+  position:absolute; inset:0; pointer-events:none; opacity:.5; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>");
+}
+
+/* ---------- 2. 公众号头条封面 2.35:1 · 终端风 ---------- */
+.wx{ background:#0b0d0c; color:#e8ffe9; padding:44px 52px; display:flex; flex-direction:column; justify-content:space-between; }
+.wx .kicker{ font-family:var(--mono); font-size:19px; letter-spacing:.22em; color:#4ade80; text-transform:uppercase; }
+.wx h2{ margin:0; font-size:74px; line-height:1.04; font-weight:800; letter-spacing:-.02em; }
+.wx h2 em{ font-style:normal; color:#4ade80; }
+.wx .foot{ display:flex; align-items:center; justify-content:space-between; font-family:var(--mono); font-size:17px; color:#5f6b62; }
+.wx .bar{ position:absolute; left:0; top:0; bottom:0; width:10px; background:#4ade80; }
+
+/* ---------- 3. X / 网站 Banner 5:2 · 编辑部风 ---------- */
+.banner{ background:#f4f1ea; padding:0 96px; display:flex; align-items:center; gap:64px; }
+.banner::before{
+  content:""; position:absolute; inset:0;
+  background:repeating-linear-gradient(to right,rgba(20,20,20,.055) 0 1px,transparent 1px 100%) 0 0/60px 100%;
+}
+.banner .txt{ position:relative; flex:1; }
+.banner h2{ margin:0 0 16px; font-family:var(--serif); font-size:82px; line-height:.98; letter-spacing:-.03em; color:#16160f; }
+.banner p{ margin:0; font-size:23px; line-height:1.5; color:#6a675c; max-width:32ch; }
+.banner .badge{
+  position:relative; flex:none; width:196px; height:196px; border-radius:50%;
+  background:#16160f; color:#f4f1ea; display:grid; place-items:center; text-align:center;
+  font-family:var(--mono); font-size:15px; letter-spacing:.14em; line-height:1.7;
+}
+
+/* ---------- 4. 小红书封面 3:4 · 大字报 ---------- */
+.xhs{ background:#ffe94d; padding:88px 72px; display:flex; flex-direction:column; }
+.xhs .tag{
+  align-self:flex-start; background:#111; color:#ffe94d; font-size:30px; font-weight:700;
+  padding:12px 26px; border-radius:999px; transform:rotate(-3deg); letter-spacing:.04em;
+}
+.xhs h2{
+  margin:52px 0 0; font-size:126px; line-height:1.08; font-weight:900;
+  letter-spacing:-.05em; color:#111;
+}
+.xhs h2 mark{ background:#fff; color:#111; padding:0 10px; margin-left:-10px; }
+.xhs ul{ margin:auto 0 0; padding-top:40px; padding:0; list-style:none; display:flex; flex-direction:column; gap:22px; }
+.xhs li{ font-size:38px; font-weight:600; color:#111; display:flex; gap:18px; align-items:baseline; }
+.xhs li b{ font-family:var(--mono); font-size:26px; color:#111; opacity:.45; }
+.xhs .sign{ margin-top:44px; font-size:24px; color:#111; opacity:.55; }
+</style>
+</head>
+<body>
+
+<header class="wi-bar">
+  <h1>web-image · 示例画廊</h1>
+  <span class="wi-note"></span>
+  <span class="wi-sp"></span>
+  <button class="wi-btn" data-all="zoom">缩放: 自适应</button>
+  <button class="wi-btn" data-all="grid">构图网格</button>
+  <button class="wi-btn" data-all="1">全部导出 1x</button>
+  <button class="wi-btn" data-all="2">全部导出 2x</button>
+</header>
+
+<main class="wi-sheet">
+
+  <section class="wi-card" id="avatar" data-w="1024" data-h="1024" data-file="avatar">
+    <div class="wi-head"><span class="wi-name">头像 / 应用图标</span>
+      <span class="wi-use">用于: 社交头像、App Icon、播客封面、组织标识</span></div>
+    <div class="wi-frame"><div class="board avatar">
+      <div class="mark"><span class="glyph">禾</span><i class="ring"></i></div>
+      <div class="grain"></div>
+    </div></div>
+  </section>
+
+  <section class="wi-card" id="wechat" data-w="900" data-h="383" data-file="wechat-cover">
+    <div class="wi-head"><span class="wi-name">公众号头条封面</span>
+      <span class="wi-use">用于: 微信公众号首图 2.35:1</span></div>
+    <div class="wi-frame"><div class="board wx">
+      <i class="bar"></i>
+      <div class="kicker">Field Notes / 04</div>
+      <h2>不靠多模态<br>也能<em>生成图片</em></h2>
+      <div class="foot"><span>web-image.skill</span><span>08 / 2026</span></div>
+    </div></div>
+  </section>
+
+  <section class="wi-card" id="banner" data-w="1500" data-h="600" data-file="x-banner">
+    <div class="wi-head"><span class="wi-name">横幅 Banner</span>
+      <span class="wi-use">用于: X/Twitter 主页头图、网站 Hero、GitHub 社交预览</span></div>
+    <div class="wi-frame"><div class="board banner">
+      <div class="txt">
+        <h2>Render, don't<br>hallucinate.</h2>
+        <p>用浏览器当渲染引擎，每一个像素都可复现、可微调、可版本管理。</p>
+      </div>
+      <div class="badge">HTML<br>→ PNG<br>2x</div>
+    </div></div>
+  </section>
+
+  <section class="wi-card" id="xhs" data-w="1080" data-h="1440" data-file="xhs-cover">
+    <div class="wi-head"><span class="wi-name">小红书封面</span>
+      <span class="wi-use">用于: 小红书/Pinterest 竖版首图 3:4</span></div>
+    <div class="wi-frame"><div class="board xhs">
+      <span class="tag">效率工具</span>
+      <h2>把网页<br><mark>变成图</mark><br>只要 4 步</h2>
+      <ul>
+        <li><b>01</b>先定尺寸，别自由发挥</li>
+        <li><b>02</b>一屏只讲一件事</li>
+        <li><b>03</b>字号差距拉到 6 倍</li>
+        <li><b>04</b>导出 2x，缩略图才清楚</li>
+      </ul>
+      <div class="sign">@ 你的账号名</div>
+    </div></div>
+  </section>
+
+</main>
+
+<script src="../assets/export.js"></script>
+<script src="../assets/studio.js"></script>
+</body>
+</html>

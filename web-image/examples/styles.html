@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>web-image · 32 套风格样张</title>
+<link rel="stylesheet" href="../assets/studio.css">
+<style>
+:root{
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --serif:"Songti SC","Source Han Serif SC",Georgia,"Times New Roman",serif;
+  --kai:"Kaiti SC","STKaiti","Songti SC",serif;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --type:"Courier New","Courier",monospace;
+}
+.board{ font-family:var(--sans); }
+.grain{position:absolute;inset:0;pointer-events:none;mix-blend-mode:overlay;
+ background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>");}
+
+/* ══════════ 1 swiss ══════════ */
+.swiss{background:#fff;color:#111;padding:64px 72px;display:flex;flex-direction:column;}
+.swiss .top{display:flex;justify-content:space-between;font:600 17px/1 var(--sans);letter-spacing:.16em;text-transform:uppercase;}
+.swiss .top .no{color:#e4002b;}
+.swiss .rule{height:1px;background:#111;margin:26px 0 0;}
+.swiss h2{margin:auto 0 0;font-size:104px;font-weight:700;line-height:.98;letter-spacing:-.045em;}
+.swiss .sub{margin:24px 0 0;font-size:23px;line-height:1.5;color:#6b6b6b;max-width:520px;}
+.swiss .foot{margin:34px 0 0;padding-top:18px;border-top:1px solid #dcdcdc;display:flex;justify-content:space-between;font-size:16px;color:#6b6b6b;letter-spacing:.04em;}
+
+/* ══════════ 2 editorial ══════════ */
+.editorial{background:#f4f1ea;color:#16160f;padding:64px 72px;display:flex;flex-direction:column;}
+.editorial .kicker{text-align:center;font:600 20px/1 var(--sans);letter-spacing:.34em;text-transform:uppercase;color:#a8331f;
+ padding:20px 0;border-top:2px solid #16160f;border-bottom:1px solid #d5d0c3;}
+.editorial h2{margin:70px 0 0;font-family:var(--serif);font-size:132px;line-height:1.02;letter-spacing:-.035em;font-weight:700;}
+.editorial .col{margin:auto 0 0;padding-top:38px;border-top:1px solid #d5d0c3;font-size:27px;line-height:1.78;color:#4a463c;
+ column-count:2;column-gap:40px;column-rule:1px solid #d5d0c3;}
+.editorial .col::first-letter{float:left;font-family:var(--serif);font-size:96px;line-height:.82;padding:8px 14px 0 0;color:#a8331f;font-weight:700;}
+.editorial .foot{margin:38px 0 0;display:flex;justify-content:space-between;font:500 19px/1 var(--sans);letter-spacing:.18em;text-transform:uppercase;color:#8a8577;padding-top:24px;border-top:2px solid #16160f;}
+
+/* ══════════ 3 newsprint ══════════ */
+.newsprint{background:#f0ede6;color:#14140f;padding:44px 56px;display:flex;flex-direction:column;position:relative;}
+.newsprint .dots{position:absolute;inset:0;pointer-events:none;opacity:.3;
+ background:radial-gradient(#14140f 1px,transparent 1.1px) 0 0/7px 7px;}
+.newsprint .mast{display:flex;justify-content:space-between;align-items:flex-end;font:600 15px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;padding-bottom:12px;}
+.newsprint .lines{border-top:5px solid #14140f;border-bottom:1px solid #14140f;height:8px;}
+.newsprint h2{margin:22px 0 0;font-family:var(--serif);font-size:96px;line-height:.96;font-weight:700;letter-spacing:-.035em;text-align:center;}
+.newsprint .cols{margin:44px 0 auto;display:flex;gap:34px;font-size:18px;line-height:1.68;color:#3d3a31;}
+.newsprint .cols div{flex:1;}
+.newsprint .cols div+div{border-left:1px solid #bdb8a9;padding-left:34px;}
+.newsprint .foot{margin-top:22px;border-top:3px double #14140f;padding-top:12px;font:600 14px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;display:flex;justify-content:space-between;color:#585448;}
+
+/* ══════════ 4 blueprint ══════════ */
+.blueprint{background:#0d2b4d;color:#e8f2fc;padding:60px 68px;font-family:var(--mono);display:flex;flex-direction:column;position:relative;}
+.blueprint .grid{position:absolute;inset:0;pointer-events:none;
+ background:repeating-linear-gradient(to right,rgba(160,205,245,.13) 0 1px,transparent 1px 100%) 0 0/20px 100%,
+            repeating-linear-gradient(to bottom,rgba(160,205,245,.13) 0 1px,transparent 1px 100%) 0 0/100% 20px,
+            repeating-linear-gradient(to right,rgba(160,205,245,.26) 0 1px,transparent 1px 100%) 0 0/100px 100%,
+            repeating-linear-gradient(to bottom,rgba(160,205,245,.26) 0 1px,transparent 1px 100%) 0 0/100% 100px;}
+.blueprint .k{position:relative;font-size:15px;letter-spacing:.22em;color:#7fb0dc;}
+.blueprint h2{position:relative;margin:auto 0 0;font-size:82px;line-height:1.04;font-weight:500;letter-spacing:-.02em;}
+.blueprint .dim{position:relative;margin:16px 0 0;width:560px;display:flex;align-items:center;gap:8px;color:#4da3ff;font-size:14px;letter-spacing:.1em;}
+.blueprint .dim i{flex:1;height:1px;background:#4da3ff;position:relative;}
+.blueprint .dim i::before,.blueprint .dim i::after{content:"";position:absolute;top:-4px;width:1px;height:9px;background:#4da3ff;}
+.blueprint .dim i::before{left:0;} .blueprint .dim i::after{right:0;}
+.blueprint .sub{position:relative;margin:26px 0 0;font-size:19px;line-height:1.6;color:#a9cdea;max-width:520px;}
+.blueprint .tblock{position:absolute;right:68px;bottom:60px;border:1px solid rgba(160,205,245,.4);font-size:13px;letter-spacing:.08em;color:#a9cdea;}
+.blueprint .tblock div{display:flex;}
+.blueprint .tblock span{padding:7px 14px;border-right:1px solid rgba(160,205,245,.28);}
+.blueprint .tblock span:last-child{border-right:0;color:#e8f2fc;}
+.blueprint .tblock div+div{border-top:1px solid rgba(160,205,245,.28);}
+.blueprint .x{position:absolute;color:rgba(160,205,245,.5);font-size:18px;}
+
+/* ══════════ 5 archive 档案手稿 ══════════ */
+.archive{background:#e7dfcd;color:#33302a;padding:72px 76px 68px 124px;font-family:var(--type);display:flex;flex-direction:column;position:relative;}
+.archive .holes{position:absolute;left:44px;top:96px;bottom:96px;width:16px;display:flex;flex-direction:column;justify-content:space-between;}
+.archive .holes i{width:16px;height:16px;border-radius:50%;background:#cfc5ab;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);}
+.archive .stamp{position:absolute;right:76px;top:76px;transform:rotate(-8deg);border:4px double #9b3227;color:#9b3227;
+ padding:12px 20px;font:700 26px/1 var(--type);letter-spacing:.16em;opacity:.82;}
+.archive .k{font-size:18px;letter-spacing:.22em;color:#7d7562;}
+.archive h2{margin:34px 0 0;font-size:82px;line-height:1.12;font-weight:700;letter-spacing:-.02em;font-family:var(--sans);}
+.archive .fields{margin:auto 0 0;display:flex;flex-direction:column;gap:20px;font-size:19px;letter-spacing:.04em;}
+.archive .fields div{display:flex;gap:16px;align-items:baseline;}
+.archive .fields b{font-weight:400;color:#7d7562;width:76px;flex:none;}
+.archive .fields u{flex:1;text-decoration:none;border-bottom:1px solid #c4b99f;padding-bottom:3px;}
+
+/* ══════════ 6 bauhaus 包豪斯 ══════════ */
+.bauhaus{background:#f2efe6;color:#141414;padding:76px 76px 68px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.bauhaus .shape{position:absolute;mix-blend-mode:multiply;}
+.bauhaus .circ{width:452px;height:452px;border-radius:50%;background:#e63329;right:-64px;top:190px;}
+.bauhaus .sq{width:270px;height:270px;background:#f7c400;left:76px;top:392px;}
+.bauhaus .tri{width:0;height:0;border-left:200px solid transparent;border-right:200px solid transparent;border-bottom:352px solid #1b4bd8;left:230px;top:520px;}
+.bauhaus .k{position:relative;font:700 22px/1 var(--sans);letter-spacing:.28em;text-transform:uppercase;}
+.bauhaus h2{position:relative;margin:48px 0 0;font-size:128px;font-weight:800;line-height:.94;letter-spacing:-.05em;}
+.bauhaus .meta{position:relative;margin:auto 0 0;font:700 30px/1.6 var(--sans);letter-spacing:.02em;}
+.bauhaus .meta span{display:block;color:#1b4bd8;}
+.bauhaus .foot{position:relative;margin:28px 0 0;font:600 19px/1 var(--sans);letter-spacing:.2em;color:#5a5a5a;}
+
+/* ══════════ 7 deco 装饰艺术 ══════════ */
+.deco{background:#0f1c18;color:#f5efe3;display:grid;place-items:center;position:relative;overflow:hidden;}
+.deco .fan{position:absolute;top:-420px;left:50%;transform:translateX(-50%);width:1180px;height:1180px;border-radius:50%;
+ background:repeating-conic-gradient(from 200deg,rgba(217,178,106,.30) 0 2.2deg,transparent 2.2deg 9deg);}
+.deco .frame{position:relative;border:1px solid rgba(217,178,106,.55);padding:8px;}
+.deco .inner{border:4px solid rgba(217,178,106,.75);padding:82px 84px;text-align:center;}
+.deco .k{font:400 18px/1 var(--serif);letter-spacing:.5em;text-transform:uppercase;color:#d9b26a;text-indent:.5em;}
+.deco h2{margin:44px 0 38px;font-family:var(--serif);font-size:92px;font-weight:400;letter-spacing:.16em;line-height:1.3;text-indent:.16em;}
+.deco .bar{height:1px;background:linear-gradient(90deg,transparent,#d9b26a 22%,#d9b26a 78%,transparent);}
+.deco .meta{margin:38px 0 0;font-family:var(--serif);font-size:26px;line-height:2;letter-spacing:.22em;color:rgba(245,239,227,.88);}
+.deco .sub{margin:34px 0 0;font-size:17px;letter-spacing:.34em;text-transform:uppercase;color:rgba(245,239,227,.55);text-indent:.34em;}
+
+/* ══════════ 8 riso 双色印刷 ══════════ */
+.riso{background:#f2efe6;color:#141414;padding:72px 72px 64px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.riso .blob{position:absolute;width:530px;height:530px;border-radius:50%;mix-blend-mode:multiply;}
+.riso .b1{background:#ff4f38;right:-96px;top:600px;}
+.riso .b2{background:#2b4bff;right:-78px;top:620px;}
+.riso .k{position:relative;font:700 20px/1 var(--mono);letter-spacing:.28em;text-transform:uppercase;color:#ff4f38;}
+.riso .stack{position:relative;margin:34px 0 0;}
+.riso .stack h2{margin:0;font-size:126px;font-weight:900;line-height:.92;letter-spacing:-.05em;color:#2b4bff;mix-blend-mode:multiply;}
+.riso .stack h2.off{position:absolute;left:11px;top:10px;color:#ff4f38;}
+.riso .meta{position:relative;margin:auto 0 0;font:700 32px/1.55 var(--sans);}
+.riso .meta span{display:block;color:#ff4f38;}
+.riso .foot{position:relative;margin:26px 0 0;font:600 18px/1 var(--mono);letter-spacing:.18em;color:#6b675e;}
+
+/* ══════════ 9 brutalist ══════════ */
+.brutalist{background:#fff;color:#000;padding:52px 58px;position:relative;font-family:"Times New Roman",var(--serif);}
+.brutalist .box{position:absolute;border:4px solid #000;background:#fff;}
+.brutalist .box{display:grid;place-items:center;font:700 62px/1 "Courier New",monospace;letter-spacing:-.02em;}
+.brutalist .b1{right:52px;top:34px;width:236px;height:158px;transform:rotate(2deg);}
+.brutalist .b2{right:92px;top:158px;width:236px;height:158px;background:#ff3b00;color:#fff;transform:rotate(-3deg);}
+.brutalist .slab{position:absolute;left:0;right:0;top:406px;height:9px;background:#000;}
+.brutalist .big{position:absolute;right:52px;bottom:34px;font-family:"Courier New",monospace;font-size:130px;
+ font-weight:700;line-height:1;letter-spacing:-.04em;color:#000;}
+.brutalist .k{position:relative;font-family:"Courier New",monospace;font-size:16px;letter-spacing:.1em;text-transform:uppercase;border-bottom:3px solid #000;display:inline-block;padding-bottom:4px;}
+.brutalist h2{position:relative;margin:78px 0 0;font-size:108px;line-height:.92;font-weight:700;letter-spacing:-.04em;}
+.brutalist .sub{position:relative;margin:74px 0 0;font-family:"Courier New",monospace;font-size:19px;line-height:1.5;max-width:440px;text-decoration:underline;text-underline-offset:5px;}
+.brutalist .foot{position:absolute;left:58px;bottom:44px;font-family:"Courier New",monospace;font-size:15px;letter-spacing:.06em;}
+
+/* ══════════ 10 memphis 孟菲斯 ══════════ */
+.memphis{background:#f7f3ea;color:#141414;padding:72px 76px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.memphis .stripe{position:absolute;right:64px;top:-70px;width:300px;height:300px;transform:rotate(22deg);
+ background:repeating-linear-gradient(45deg,#7c5cff 0 17px,transparent 17px 34px);}
+.memphis .pill{position:absolute;right:-52px;top:340px;width:260px;height:260px;border-radius:50%;background:#4fd1c5;}
+.memphis .wave{position:absolute;left:68px;bottom:150px;width:380px;height:44px;}
+.memphis .dots{position:absolute;right:120px;bottom:96px;width:170px;height:78px;
+ background:radial-gradient(#ffd93d 7px,transparent 7.5px) 0 0/34px 34px;}
+.memphis .k{position:relative;align-self:flex-start;background:#141414;color:#ffd93d;font:700 20px/1 var(--sans);
+ letter-spacing:.14em;padding:11px 22px;border-radius:999px;transform:rotate(-2deg);}
+.memphis h2{position:relative;margin:56px 0 0;font-size:120px;font-weight:900;line-height:.96;letter-spacing:-.05em;}
+.memphis .meta{position:relative;margin:auto 0 0;font-size:28px;font-weight:700;line-height:1.6;}
+.memphis .meta span{display:block;color:#7c5cff;}
+
+/* ══════════ 11 wabi ══════════ */
+.wabi{background:#e9e3d6;color:#2b2723;padding:0 76px;position:relative;display:flex;flex-direction:column;justify-content:center;}
+.wabi .moon{position:absolute;right:248px;top:92px;width:172px;height:172px;border-radius:50%;
+ background:#ded6c5;box-shadow:inset -14px -10px 0 rgba(203,193,175,.5);}
+.wabi .vert{position:absolute;right:88px;top:92px;writing-mode:vertical-rl;font-family:var(--serif);font-size:19px;
+ letter-spacing:.34em;color:#8b8375;}
+.wabi .line{width:330px;height:1px;background:#c3baa6;}
+.wabi h2{margin:46px 0 0;font-family:var(--serif);font-size:62px;font-weight:400;letter-spacing:.12em;line-height:1.3;}
+.wabi .sub{margin:30px 0 0;font-size:16px;letter-spacing:.26em;color:#8b8375;}
+.wabi .seal{position:absolute;left:76px;bottom:56px;width:52px;height:52px;background:#b3402f;color:#e9e3d6;
+ font-family:var(--serif);font-size:19px;display:grid;place-items:center;letter-spacing:.04em;line-height:1.1;text-align:center;}
+
+/* ══════════ 12 ink 中式水墨 ══════════ */
+.ink{background:#f5f1e8;color:#1a1a18;padding:78px 84px;position:relative;overflow:hidden;}
+.ink .wash{position:absolute;left:-160px;bottom:-150px;width:900px;height:760px;}
+/* 竖排文字用 flex 排，别手算坐标：vertical-rl 下 line-height 决定的是【列宽】，
+   1.16×168px=195px 比按字号估的 168px 宽，手算必然撞车 */
+.ink .right{position:absolute;right:84px;top:96px;display:flex;flex-direction:row-reverse;
+ gap:34px;align-items:flex-start;}
+.ink .main{display:flex;flex-direction:column;align-items:flex-end;gap:52px;}
+.ink h2{margin:0;writing-mode:vertical-rl;font-family:var(--kai);font-size:168px;
+ font-weight:400;letter-spacing:.1em;line-height:1.16;}
+.ink .sub{writing-mode:vertical-rl;font-family:var(--serif);font-size:29px;
+ line-height:2.1;letter-spacing:.16em;color:#4a463e;}
+.ink .k{writing-mode:vertical-rl;font-family:var(--serif);font-size:23px;
+ letter-spacing:.4em;color:#6f6a60;}
+.ink .seal{position:absolute;left:84px;bottom:96px;width:86px;height:86px;background:#8c1f1f;color:#f5f1e8;
+ font-family:var(--kai);font-size:30px;display:grid;place-items:center;line-height:1.15;text-align:center;letter-spacing:.02em;}
+
+/* ══════════ 13 terminal 终端 ══════════ */
+.terminal{background:#0b0d0c;color:#e8ffe9;padding:44px 52px;font-family:var(--mono);display:flex;flex-direction:column;position:relative;}
+.terminal .band{position:absolute;left:0;top:0;bottom:0;width:10px;background:#4ade80;}
+.terminal .scan{position:absolute;inset:0;pointer-events:none;opacity:.05;
+ background:repeating-linear-gradient(to bottom,#fff 0 1px,transparent 1px 3px);}
+.terminal .k{position:relative;font-size:17px;letter-spacing:.24em;color:#4ade80;}
+.terminal h2{position:relative;margin:auto 0 0;font-family:var(--sans);font-size:72px;font-weight:800;line-height:1.04;letter-spacing:-.03em;}
+.terminal h2 mark{background:#4ade80;color:#0b0d0c;padding:0 10px;}
+.terminal .sub{position:relative;margin:20px 0 0;font-size:18px;line-height:1.6;color:#8ea396;}
+.terminal .cur{display:inline-block;width:14px;height:18px;background:#4ade80;vertical-align:-1px;margin-left:6px;}
+.terminal .foot{position:relative;margin:26px 0 0;display:flex;justify-content:space-between;font-size:15px;letter-spacing:.14em;color:#5f6b62;}
+
+/* ══════════ 14 aurora ══════════ */
+.aurora{background:#0a0d12;color:#eef1f6;padding:64px 72px;display:flex;flex-direction:column;position:relative;overflow:hidden;}
+.aurora .glow{position:absolute;right:-150px;top:-260px;width:820px;height:760px;
+ background:radial-gradient(closest-side at 42% 62%,rgba(45,212,191,.46),rgba(45,212,191,.14) 52%,transparent 76%),
+            radial-gradient(closest-side at 66% 78%,rgba(251,191,36,.30),transparent 70%),
+            radial-gradient(closest-side at 30% 88%,rgba(56,189,248,.18),transparent 68%);}
+.aurora .k{position:relative;display:inline-flex;align-items:center;gap:9px;align-self:flex-start;
+ border:1px solid rgba(255,255,255,.13);border-radius:999px;padding:7px 16px;font-size:15px;letter-spacing:.1em;color:#a9b3c6;}
+.aurora .k i{width:6px;height:6px;border-radius:50%;background:#2dd4bf;}
+.aurora h2{position:relative;margin:auto 0 0;font-size:94px;font-weight:700;line-height:1.04;letter-spacing:-.035em;}
+.aurora .sub{position:relative;margin:24px 0 0;font-size:21px;line-height:1.6;color:#8a93a6;max-width:480px;}
+.aurora .foot{position:relative;margin:36px 0 0;padding-top:20px;border-top:1px solid rgba(255,255,255,.09);
+ display:flex;justify-content:space-between;font-size:16px;color:#79839a;}
+
+/* ══════════ 15 luxe 奢侈品 ══════════ */
+.luxe{background:#0a0a0a;color:#f0ece4;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:0 96px;}
+.luxe .k{font-family:var(--serif);font-size:17px;font-weight:300;letter-spacing:.6em;text-transform:uppercase;color:#b08d57;text-indent:.6em;}
+.luxe .hr{width:100%;max-width:540px;height:1px;background:linear-gradient(90deg,transparent,rgba(176,141,87,.85),transparent);margin:64px 0;}
+.luxe h2{margin:0;font-family:var(--serif);font-size:88px;font-weight:300;letter-spacing:.34em;line-height:1.4;text-indent:.34em;}
+.luxe .zh{margin:26px 0 0;font-family:var(--serif);font-size:22px;font-weight:300;letter-spacing:.52em;text-indent:.52em;color:rgba(240,236,228,.62);}
+.luxe .sub{margin:0;font-family:var(--serif);font-size:16px;font-weight:300;letter-spacing:.46em;text-transform:uppercase;color:rgba(240,236,228,.45);text-indent:.46em;}
+
+/* ══════════ 16 product ══════════ */
+.product{background:#fbfbfd;color:#14151a;padding:64px 72px;display:flex;flex-direction:column;}
+.product .brand{display:flex;align-items:center;gap:12px;font-size:19px;font-weight:600;color:#5b6070;}
+.product .brand i{width:26px;height:26px;border-radius:8px;background:#2f5cff;display:block;
+ box-shadow:0 1px 2px rgba(47,92,255,.28),0 6px 16px rgba(47,92,255,.16);}
+.product h2{margin:auto 0 0;font-size:82px;font-weight:750;line-height:1.06;letter-spacing:-.035em;}
+.product .sub{margin:22px 0 0;font-size:22px;line-height:1.55;color:#5b6070;max-width:520px;}
+.product .chips{margin:34px 0 0;display:flex;gap:10px;}
+.product .chips span{font-size:16px;color:#41465a;background:#fff;border:1px solid #e6e8ef;border-radius:9px;padding:9px 15px;
+ box-shadow:0 1px 2px rgba(16,20,40,.04),0 4px 12px rgba(16,20,40,.03);}
+.product .chips span.on{background:#2f5cff;border-color:#2f5cff;color:#fff;box-shadow:0 1px 2px rgba(47,92,255,.3),0 6px 18px rgba(47,92,255,.18);}
+
+/* ══════════ 17 sketch 手绘 ══════════ */
+.sketch{background:#fdfcf8;color:#2b3a55;padding:46px 58px;position:relative;overflow:hidden;
+ font-family:"Hanzipen SC","Hannotate SC","Marker Felt",var(--sans);}
+.sketch .paper{position:absolute;inset:0;background:radial-gradient(#c9d4e4 1.3px,transparent 1.4px) 0 0/26px 26px;opacity:.55;}
+.sketch .k{position:relative;font-size:22px;letter-spacing:.08em;color:#8493ab;}
+.sketch .wrap{position:relative;margin:22px 0 0;display:inline-block;padding:20px 32px;}
+.sketch .fr{position:absolute;inset:0;width:100%;height:100%;}
+.sketch h2{position:relative;margin:0;font-size:88px;font-weight:600;line-height:1.12;letter-spacing:.02em;}
+.sketch h2 em{position:relative;font-style:normal;z-index:1;}
+.sketch h2 em::after{content:"";position:absolute;left:-10px;right:-12px;bottom:4px;height:30px;z-index:-1;
+ background:#ffe066;transform:rotate(-1.6deg);mix-blend-mode:multiply;}
+.sketch .flow{position:absolute;right:64px;top:104px;display:flex;align-items:center;gap:16px;}
+.sketch .node{width:96px;height:74px;display:grid;place-items:center;font-size:20px;color:#2b3a55;position:relative;}
+.sketch .node svg{position:absolute;inset:0;width:100%;height:100%;}
+.sketch .node span{position:relative;}
+.sketch .ar{width:52px;height:26px;flex:none;}
+.sketch .note{position:absolute;right:96px;top:224px;width:210px;font-size:22px;line-height:1.5;color:#5c6b85;transform:rotate(-2.5deg);}
+.sketch .arw{position:absolute;right:308px;top:236px;width:104px;height:70px;}
+.sketch .list{position:absolute;left:58px;bottom:52px;display:flex;gap:44px;font-size:25px;color:#3d4d6b;}
+.sketch .list div{display:flex;align-items:center;gap:12px;}
+.sketch .list svg{width:30px;height:30px;flex:none;}
+.sketch .tape{position:absolute;right:52px;bottom:56px;background:#ffe9a8;color:#7a6320;font-size:20px;line-height:1.45;
+ padding:16px 20px;width:196px;transform:rotate(3deg);box-shadow:2px 3px 0 rgba(0,0,0,.07);}
+
+/* ══════════ 18 comic 美漫波普 ══════════ */
+.comic{background:#ffd93d;color:#111;padding:68px 72px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.comic .half{position:absolute;inset:0;background:radial-gradient(#ff2e4c 7px,transparent 7.6px) 0 0/26px 26px;opacity:.3;}
+.comic .burst{position:absolute;right:44px;top:340px;width:330px;height:330px;background:#ff2e4c;
+ clip-path:polygon(50% 0,58% 20%,78% 8%,76% 30%,97% 28%,84% 46%,100% 60%,80% 66%,88% 88%,66% 80%,60% 100%,47% 83%,30% 96%,29% 74%,8% 78%,17% 58%,0 46%,20% 36%,10% 16%,32% 20%,36% 2%);
+ display:grid;place-items:center;transform:rotate(-8deg);}
+.comic .burst b{color:#fff;font:900 52px/1.1 var(--sans);text-align:center;-webkit-text-stroke:3.5px #111;letter-spacing:-.02em;}
+.comic .k{position:relative;align-self:flex-start;background:#111;color:#ffd93d;font:900 21px/1 var(--sans);
+ letter-spacing:.14em;padding:11px 20px;border:3px solid #111;}
+.comic h2{position:relative;margin:46px 0 0;font:900 124px/.98 var(--sans);letter-spacing:-.045em;color:#fff;
+ -webkit-text-stroke:7px #111;text-shadow:10px 10px 0 #111;}
+.comic .bub{position:relative;margin:auto 0 0;align-self:flex-start;background:#fff;border:5px solid #111;border-radius:30px;
+ padding:20px 30px;font:700 28px/1.4 var(--sans);max-width:520px;}
+.comic .bub::after{content:"";position:absolute;left:52px;bottom:-26px;width:0;height:0;
+ border-left:18px solid transparent;border-right:26px solid transparent;border-top:26px solid #111;}
+
+/* ══════════ 19 neon 霓虹赛博 ══════════ */
+.neon{background:#08060f;color:#fff;padding:58px 66px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.neon .horizon{position:absolute;left:-60%;right:-60%;bottom:0;height:230px;transform:perspective(320px) rotateX(64deg);transform-origin:bottom;
+ background:repeating-linear-gradient(90deg,rgba(0,255,240,.42) 0 2px,transparent 2px 64px),
+            repeating-linear-gradient(0deg,rgba(255,45,149,.32) 0 2px,transparent 2px 42px);}
+.neon .fade{position:absolute;left:0;right:0;bottom:0;height:230px;background:linear-gradient(180deg,#08060f,transparent 55%);}
+.neon .k{position:relative;font:700 17px/1 var(--mono);letter-spacing:.3em;color:#ff2d95;
+ text-shadow:0 0 8px #ff2d95,0 0 26px rgba(255,45,149,.6);}
+.neon h2{position:relative;margin:auto 0 0;font-size:104px;font-weight:800;line-height:1.02;letter-spacing:-.02em;
+ text-shadow:0 0 5px #00fff0,0 0 16px #00fff0,0 0 42px rgba(0,255,240,.75),0 0 88px rgba(0,255,240,.35);}
+.neon .bar{position:relative;margin:26px 0 0;width:300px;height:2px;background:#00fff0;box-shadow:0 0 12px #00fff0,0 0 34px #00fff0;}
+.neon .sub{position:relative;margin:24px 0 0;font:400 19px/1.6 var(--mono);color:#8ea6c6;letter-spacing:.06em;}
+
+/* ══════════ 20 y2k 千禧 ══════════ */
+.y2k{background:linear-gradient(150deg,#bcd2ff 0%,#e3ccff 42%,#ffc9e8 100%);color:#3a3f66;padding:76px 76px 68px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.y2k .net{position:absolute;inset:0;opacity:.45;
+ background:repeating-linear-gradient(90deg,rgba(255,255,255,.85) 0 1px,transparent 1px 52px),
+            repeating-linear-gradient(0deg,rgba(255,255,255,.85) 0 1px,transparent 1px 52px);}
+.y2k .jelly{position:absolute;right:-90px;top:560px;width:480px;height:480px;border-radius:50%;
+ background:radial-gradient(closest-side at 34% 28%,rgba(255,255,255,.9),rgba(255,255,255,.25) 45%,rgba(180,150,255,.28) 78%,rgba(255,150,220,.3));
+ box-shadow:inset 0 -22px 48px rgba(150,110,220,.28),inset 0 16px 34px rgba(255,255,255,.85);}
+.y2k .star{position:absolute;background:#fff;
+ clip-path:polygon(50% 0,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0 50%,40% 40%);
+ filter:drop-shadow(0 0 12px rgba(255,120,220,.85));}
+.y2k .k{position:relative;align-self:flex-start;background:rgba(255,255,255,.62);border:2px solid #fff;border-radius:999px;
+ padding:10px 24px;font:700 20px/1 var(--sans);letter-spacing:.14em;color:#8a4fd8;
+ box-shadow:0 3px 0 rgba(150,120,220,.3),inset 0 2px 6px rgba(255,255,255,.9);}
+.y2k h2{position:relative;margin:56px 0 0;font:900 132px/.98 var(--sans);letter-spacing:-.045em;
+ background:linear-gradient(180deg,#ffffff 0%,#eaf2ff 10%,#9cb3e0 26%,#41537f 42%,#ffffff 49%,#ffffff 53%,#35456e 60%,#7f97cc 74%,#eef4ff 90%,#ffffff 100%);
+ -webkit-background-clip:text;background-clip:text;color:transparent;
+ filter:drop-shadow(2px 0 0 #2f3d63) drop-shadow(-2px 0 0 #2f3d63) drop-shadow(0 2px 0 #2f3d63)
+        drop-shadow(0 -2px 0 #2f3d63) drop-shadow(7px 9px 0 rgba(120,70,190,.42));}
+.y2k .sub{position:relative;margin:34px 0 0;font:700 27px/1.55 var(--sans);color:#7b5fb8;}
+.y2k .foot{position:relative;margin:auto 0 0;font:700 19px/1 var(--mono);letter-spacing:.22em;color:#9a86c8;}
+
+/* ══════════ 21 vapor 蒸汽波 ══════════ */
+.vapor{background:linear-gradient(180deg,#2b1055 0%,#6d2bd9 34%,#ff6ec7 66%,#ffc36e 100%);color:#fff;position:relative;overflow:hidden;}
+.vapor .sun{position:absolute;left:50%;top:186px;transform:translateX(-50%);width:400px;height:400px;border-radius:50%;
+ background:linear-gradient(180deg,#fff36e 0%,#ff9a5f 46%,#ff4f8b 100%);}
+.vapor .slat{position:absolute;left:50%;transform:translateX(-50%);width:410px;background:#6d2bd9;}
+.vapor .grid{position:absolute;left:-60%;right:-60%;bottom:0;height:300px;transform:perspective(340px) rotateX(66deg);transform-origin:bottom;
+ background:repeating-linear-gradient(90deg,rgba(255,255,255,.55) 0 2px,transparent 2px 66px),
+            repeating-linear-gradient(0deg,rgba(255,255,255,.5) 0 2px,transparent 2px 44px);}
+.vapor h2{position:absolute;left:0;right:0;top:420px;text-align:center;margin:0;font-size:94px;font-weight:800;
+ letter-spacing:.2em;text-indent:.2em;text-shadow:5px 5px 0 #00e5ff,10px 10px 0 rgba(255,45,149,.55);}
+.vapor .k{position:absolute;left:0;right:0;top:96px;text-align:center;font:400 20px/1 var(--mono);letter-spacing:.62em;color:rgba(255,255,255,.85);}
+.vapor .foot{position:absolute;left:0;right:0;bottom:72px;text-align:center;font:400 18px/1.9 var(--mono);letter-spacing:.34em;color:rgba(255,255,255,.8);}
+
+/* ══════════ 22 retro70 复古未来 ══════════ */
+.retro{background:#f3e3c3;color:#5a2f1c;padding:68px 72px;position:relative;overflow:hidden;
+ font-family:"Yuanti SC","PingFang SC",var(--sans);}
+.retro .rb{position:absolute;right:0;top:0;bottom:0;width:240px;display:flex;flex-direction:column;}
+.retro .rb i{flex:1;} .retro .rb i:nth-child(1){background:#e0672f;} .retro .rb i:nth-child(2){background:#d9a441;} .retro .rb i:nth-child(3){background:#8c4a2f;}
+.retro .arc{position:absolute;right:240px;top:0;bottom:0;width:210px;background:#f3e3c3;border-radius:0 100% 100% 0/0 50% 50% 0;}
+.retro .inner{position:relative;height:100%;display:flex;flex-direction:column;}
+.retro .k{font:700 21px/1 var(--sans);letter-spacing:.28em;text-transform:uppercase;color:#a8642f;}
+.retro h2{margin:56px 0 0;font-size:106px;font-weight:900;line-height:1.06;letter-spacing:-.02em;max-width:560px;}
+.retro .sub{margin:28px 0 0;font-size:26px;line-height:1.6;color:#8c5a3c;max-width:480px;}
+.retro .foot{margin:auto 0 0;font:700 20px/1 var(--sans);letter-spacing:.2em;color:#a8642f;}
+
+/* ══════════ 23 cinematic 电影海报 ══════════ */
+.cine{background:#08080a;color:#f2f0ec;padding:104px 0 56px;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;overflow:hidden;}
+.cine .vig{position:absolute;inset:0;background:radial-gradient(58% 42% at 50% 38%,rgba(226,208,178,.17),transparent 72%);}
+.cine .tag{position:relative;font:400 19px/1.9 var(--sans);letter-spacing:.44em;text-transform:uppercase;color:#8d867a;max-width:760px;text-indent:.44em;}
+.cine h2{position:relative;margin:auto 0 0;font-family:var(--serif);font-size:124px;font-weight:400;letter-spacing:.18em;text-indent:.18em;line-height:1.3;}
+.cine .bill{position:relative;margin:34px 0 auto;font:400 21px/1 var(--sans);letter-spacing:.34em;text-transform:uppercase;color:#a49b8c;text-indent:.34em;}
+.cine .credits{position:relative;font:400 13px/1.7 var(--sans);letter-spacing:.02em;color:#6e675d;text-transform:uppercase;
+ max-width:900px;transform:scaleX(.86);}
+.cine .credits b{color:#8d867a;font-weight:400;}
+
+/* ══════════ 24 chalk 黑板 ══════════ */
+.chalk{background:#26332e;color:#eef3ee;padding:72px 76px;position:relative;overflow:hidden;
+ font-family:"Hanzipen SC","Chalkboard SE","Hannotate SC",var(--sans);}
+.chalk .dust{position:absolute;inset:0;pointer-events:none;opacity:.3;mix-blend-mode:screen;
+ background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='3'/></filter><rect width='160' height='160' filter='url(%23c)' opacity='.6'/></svg>");}
+.chalk .inner{position:relative;height:100%;display:flex;flex-direction:column;}
+.chalk .k{font-size:24px;letter-spacing:.2em;color:#9dbfae;}
+.chalk h2{margin:22px 0 0;font-size:96px;font-weight:600;line-height:1.1;letter-spacing:.02em;text-shadow:0 0 1px rgba(255,255,255,.5);}
+.chalk .ul{width:400px;height:56px;margin:4px 0 0;}
+.chalk .menu{margin:auto 0 0;display:flex;flex-direction:column;gap:26px;font-size:30px;}
+.chalk .menu div{display:flex;align-items:baseline;gap:16px;color:#eef3ee;}
+.chalk .menu i{flex:1;border-bottom:2px dotted rgba(238,243,238,.35);font-style:normal;}
+.chalk .menu b{font-weight:600;color:#ffd98a;}
+.chalk .foot{margin:44px 0 0;display:flex;justify-content:space-between;font-size:21px;color:#7f9c8d;letter-spacing:.08em;}
+
+/* ══════════ 25 pixel 像素 ══════════ */
+.pixel{background:#1a1c2c;color:#f4f4f4;padding:52px 60px;position:relative;overflow:hidden;font-family:var(--mono);}
+.pixel .scan{position:absolute;inset:0;opacity:.07;background:repeating-linear-gradient(to bottom,#fff 0 2px,transparent 2px 4px);}
+.pixel .px{clip-path:polygon(12px 0,calc(100% - 12px) 0,calc(100% - 12px) 12px,100% 12px,100% calc(100% - 12px),calc(100% - 12px) calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,12px calc(100% - 12px),0 calc(100% - 12px),0 12px,12px 12px);}
+.pixel .k{position:relative;display:inline-block;background:#ffcd75;color:#1a1c2c;font:700 17px/1 var(--mono);letter-spacing:.18em;padding:10px 20px;}
+.pixel h2{position:relative;margin:34px 0 0;font-family:var(--sans);font-size:100px;font-weight:900;line-height:1.04;letter-spacing:-.02em;
+ text-shadow:5px 0 0 #1a1c2c,-5px 0 0 #1a1c2c,0 5px 0 #1a1c2c,0 -5px 0 #1a1c2c,10px 10px 0 #41a6f6,10px 10px 0 #41a6f6;}
+.pixel .hp{position:relative;margin:30px 0 0;display:flex;align-items:center;gap:14px;font-size:15px;letter-spacing:.16em;color:#9ba4c4;}
+.pixel .hp .track{display:flex;gap:3px;}
+.pixel .hp .track i{width:22px;height:18px;background:#2a2f4a;}
+.pixel .hp .track i.on{background:#38b764;}
+.pixel .dlg{position:absolute;right:66px;bottom:112px;width:290px;background:#2a2f4a;border:4px solid #f4f4f4;
+ padding:16px 18px;font-size:17px;line-height:1.65;color:#f4f4f4;letter-spacing:.03em;}
+.pixel .dlg::after{content:"▼";position:absolute;right:16px;bottom:6px;font-size:13px;color:#ffcd75;}
+.pixel .bar{position:relative;margin:34px 0 0;display:flex;gap:8px;}
+.pixel .bar i{width:34px;height:16px;}
+.pixel .sub{position:relative;margin:26px 0 0;font-size:19px;line-height:1.6;color:#9ba4c4;letter-spacing:.04em;}
+.pixel .icon{position:absolute;right:88px;top:78px;}
+.pixel .foot{position:absolute;left:60px;bottom:46px;font-size:15px;letter-spacing:.2em;color:#6b7394;}
+
+/* ══════════ 26 collage 拼贴 ══════════ */
+.collage{background:#e9e3d6;color:#1c1a17;padding:72px 68px 60px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.collage .sheet{position:absolute;background:#fbf9f4;box-shadow:3px 5px 0 rgba(0,0,0,.07);
+ clip-path:polygon(0 3%,7% 0,19% 4%,32% 1%,45% 5%,59% 1%,73% 6%,87% 2%,100% 5%,99% 95%,87% 100%,73% 95%,59% 100%,45% 94%,31% 100%,18% 95%,5% 99%);}
+.collage .tape{position:absolute;background:rgba(240,214,120,.6);border-left:2px dashed rgba(0,0,0,.12);border-right:2px dashed rgba(0,0,0,.12);}
+.collage .k{position:relative;align-self:flex-start;background:#1c1a17;color:#fbf9f4;font:700 19px/1 var(--mono);letter-spacing:.2em;padding:10px 18px;transform:rotate(-1.5deg);}
+.collage h2{position:relative;margin:46px 0 0;font:900 118px/1.14 var(--sans);letter-spacing:-.03em;}
+.collage h2 span{display:inline-block;padding:2px 12px;}
+.collage h2 .a{background:#1c1a17;color:#fbf9f4;transform:rotate(-2.5deg);}
+.collage h2 .b{background:#e8503a;color:#fbf9f4;transform:rotate(1.8deg);font-family:var(--serif);}
+.collage h2 .c{background:#f0d678;transform:rotate(-1deg);}
+.collage h2 .d{border:4px solid #1c1a17;transform:rotate(2.2deg);font-family:var(--serif);}
+.collage .clip{position:relative;margin:auto 0 0;width:420px;font:400 24px/1.75 var(--serif);color:#3a3630;
+ background:#fbf9f4;padding:26px 28px;transform:rotate(1.6deg);box-shadow:3px 5px 0 rgba(0,0,0,.07);}
+.collage .foot{position:relative;margin:40px 0 0;font:700 18px/1 var(--mono);letter-spacing:.2em;color:#6a655c;}
+
+/* ══════════ 27 watercolor 水彩 ══════════ */
+.watercolor{background:#fbf8f2;color:#2f2b26;padding:88px 84px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.watercolor .wc{position:absolute;mix-blend-mode:multiply;}
+.watercolor .k{position:relative;font:400 21px/1 var(--serif);letter-spacing:.4em;text-transform:uppercase;color:#8a8073;}
+.watercolor h2{position:relative;margin:auto 0 0;font-family:var(--serif);font-size:126px;font-weight:400;line-height:1.18;letter-spacing:.1em;}
+.watercolor .sub{position:relative;margin:38px 0 0;font-family:var(--serif);font-size:27px;line-height:2;color:#5f584e;}
+.watercolor .foot{position:relative;margin:56px 0 0;font:400 19px/1 var(--serif);letter-spacing:.3em;color:#988f80;}
+
+/* ══════════ 28 botanical 博物图鉴 ══════════ */
+.botanical{background:#f4f1e6;color:#2b3327;position:relative;overflow:hidden;font-family:var(--serif);
+ display:flex;flex-direction:column;align-items:center;padding:92px 76px 52px;}
+.botanical .frame{position:absolute;inset:38px;border:1px solid #b9b49e;}
+.botanical .frame2{position:absolute;inset:47px;border:1px solid #cfcab4;}
+.botanical .k{position:relative;font-size:19px;letter-spacing:.36em;text-transform:uppercase;color:#7d7a63;}
+.botanical .plant{position:relative;margin:26px 0 0;width:400px;height:540px;flex:none;}
+.botanical h2{position:relative;margin:auto 0 0;font-size:92px;font-weight:400;line-height:1.16;letter-spacing:.14em;text-indent:.14em;}
+.botanical .lat{position:relative;margin:16px 0 0;font-size:29px;font-style:italic;color:#6b7a5e;}
+.botanical .label{position:relative;margin:38px 0 0;width:400px;border:1px solid #b9b49e;background:#faf8f0;
+ font-size:18px;line-height:2.1;letter-spacing:.06em;color:#4e5545;padding:20px 26px;}
+.botanical .label b{font-weight:400;color:#8d8a72;display:inline-block;width:76px;}
+.botanical .no{position:relative;margin:30px 0 0;font-size:16px;letter-spacing:.34em;color:#8d8a72;}
+
+/* ══════════ 29 line 极简线条 ══════════ */
+.lineart{background:#fcfbf8;color:#1e1e1c;padding:56px 64px;position:relative;overflow:hidden;}
+.lineart .draw{position:absolute;right:56px;top:0;bottom:0;width:640px;}
+.lineart .k{position:relative;font:500 14px/1 var(--sans);letter-spacing:.36em;text-transform:uppercase;color:#a09b90;}
+.lineart h2{position:relative;margin:auto 0 0;font-size:66px;font-weight:300;line-height:1.28;letter-spacing:.04em;}
+.lineart .sub{position:relative;margin:22px 0 0;font-size:17px;line-height:1.75;color:#7d786e;max-width:330px;letter-spacing:.02em;}
+.lineart .inner{position:relative;height:100%;display:flex;flex-direction:column;}
+.lineart .foot{position:relative;margin:28px 0 0;font:500 13px/1 var(--sans);letter-spacing:.28em;color:#a09b90;}
+
+/* ══════════ 30 guochao 国潮 ══════════ */
+.guochao{background:#b81c22;color:#f7e9c8;position:relative;overflow:hidden;font-family:var(--kai);}
+.guochao .bd{position:absolute;inset:36px;border:3px solid rgba(224,183,106,.7);}
+.guochao .bd2{position:absolute;inset:47px;border:1px solid rgba(224,183,106,.45);}
+.guochao .corner{position:absolute;width:52px;height:52px;border:3px solid #e0b76a;}
+.guochao .cloud{position:absolute;opacity:.24;}
+.guochao .k{position:absolute;left:0;right:0;top:132px;text-align:center;font-size:23px;letter-spacing:.46em;color:#e0b76a;text-indent:.46em;}
+.guochao h2{position:absolute;left:0;right:0;top:280px;text-align:center;margin:0;font-size:214px;font-weight:700;letter-spacing:.06em;line-height:1.14;text-indent:.06em;}
+.guochao .sub{position:absolute;left:0;right:0;bottom:436px;text-align:center;font-size:30px;line-height:2;letter-spacing:.24em;color:rgba(247,233,200,.86);text-indent:.24em;}
+.guochao .seal{position:absolute;left:50%;transform:translateX(-50%);bottom:250px;width:112px;height:112px;border:4px solid #e0b76a;color:#e0b76a;
+ display:grid;place-items:center;font-size:34px;line-height:1.15;text-align:center;}
+.guochao .foot{position:absolute;left:0;right:0;bottom:152px;text-align:center;font-size:20px;letter-spacing:.4em;color:rgba(224,183,106,.85);text-indent:.4em;}
+
+/* ══════════ 31 street 街头海报 ══════════ */
+.street{background:#dcd8ce;color:#141414;padding:76px 68px 64px;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+.street .torn{position:absolute;background:#f2efe7;
+ clip-path:polygon(0 2%,8% 0,21% 4%,35% 0,48% 5%,62% 1%,76% 6%,90% 2%,100% 6%,97% 96%,84% 100%,70% 95%,55% 100%,40% 95%,26% 100%,12% 96%,2% 99%);}
+.street .spray{position:absolute;inset:0;pointer-events:none;opacity:.3;mix-blend-mode:multiply;
+ background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='180' height='180' filter='url(%23s)' opacity='.7'/></svg>");}
+.street .k{position:relative;align-self:flex-start;background:#d6ff3d;color:#141414;font:900 22px/1 var(--sans);
+ letter-spacing:.16em;padding:11px 20px;transform:rotate(-2deg);}
+.street h2{position:relative;margin:52px 0 0;font:900 154px/.92 var(--sans);letter-spacing:-.055em;transform:rotate(-1.4deg);}
+.street h2 em{font-style:normal;background:#141414;color:#d6ff3d;padding:0 12px;}
+.street .meta{position:relative;margin:auto 0 0;font:900 40px/1.5 var(--sans);transform:rotate(-.8deg);}
+.street .meta span{display:block;font-size:28px;font-weight:700;}
+.street .stencil{position:absolute;right:64px;top:840px;border:6px solid #141414;color:#141414;
+ font:900 52px/1 var(--sans);letter-spacing:.06em;padding:18px 24px;transform:rotate(5deg);}
+.street .foot{position:relative;margin:38px 0 0;font:700 18px/1 var(--mono);letter-spacing:.2em;color:#5a5750;}
+
+/* ══════════ 32 glass 玻璃 ══════════ */
+/* 注意: backdrop-filter 页内导出不渲染。这里用"卡片下方独立的模糊色斑"模拟折射, 两条通道都稳。 */
+.glass{background:linear-gradient(140deg,#101a2e 0%,#1b2b45 46%,#22364f 100%);color:#eef3fa;position:relative;overflow:hidden;
+ display:grid;place-items:center;padding:52px;}
+.glass .orb{position:absolute;border-radius:50%;filter:blur(58px);}
+.glass .card{position:relative;width:100%;height:100%;border-radius:26px;padding:52px 56px;
+ background:linear-gradient(150deg,rgba(255,255,255,.16),rgba(255,255,255,.05) 52%,rgba(255,255,255,.10));
+ border:1px solid rgba(255,255,255,.22);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -1px 0 rgba(255,255,255,.10),0 24px 60px rgba(0,0,0,.34);
+ display:flex;flex-direction:column;}
+.glass .k{display:inline-flex;align-items:center;gap:9px;align-self:flex-start;border:1px solid rgba(255,255,255,.26);
+ border-radius:999px;padding:7px 16px;font-size:15px;letter-spacing:.1em;color:#c3d2e6;}
+.glass .k i{width:6px;height:6px;border-radius:50%;background:#7fd9ff;box-shadow:0 0 10px #7fd9ff;}
+.glass h2{margin:auto 0 0;font-size:86px;font-weight:700;line-height:1.06;letter-spacing:-.035em;}
+.glass .sub{margin:22px 0 0;font-size:20px;line-height:1.6;color:#a8b8cf;max-width:470px;}
+.glass .foot{margin:30px 0 0;padding-top:20px;border-top:1px solid rgba(255,255,255,.12);
+ display:flex;justify-content:space-between;font-size:15px;color:#94a5bd;}
+
+</style>
+</head>
+<body>
+
+<header class="wi-bar">
+  <h1>web-image · 32 套风格样张</h1>
+  <span class="wi-note"></span>
+  <span class="wi-sp"></span>
+  <button class="wi-btn" data-all="zoom">缩放: 自适应</button>
+  <button class="wi-btn" data-all="grid">构图网格</button>
+  <button class="wi-btn" data-all="2">全部导出 2x</button>
+</header>
+
+<main class="wi-sheet">
+
+<section class="wi-card" id="swiss" data-w="1200" data-h="630" data-file="swiss">
+ <div class="wi-head"><span class="wi-name">swiss · 瑞士国际主义</span><span class="wi-use">产品发布 OG · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board swiss">
+  <div class="top"><span>Design System</span><span class="no">v2.0</span></div>
+  <div class="rule"></div>
+  <h2>少了 40%<br>的组件</h2>
+  <p class="sub">我们删掉了 62 个组件，剩下的 94 个终于有人用了。</p>
+  <div class="foot"><span>Changelog · 2026.08</span><span>Read the migration guide</span></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="editorial" data-w="1080" data-h="1440" data-file="editorial">
+ <div class="wi-head"><span class="wi-name">editorial · 杂志编辑部</span><span class="wi-use">长文封面 · 3:4</span></div>
+ <div class="wi-frame"><div class="board editorial">
+  <div class="kicker">Field Notes · 第 04 期</div>
+  <h2>我们把<br>设计系统<br>推倒重来<br>了一次</h2>
+  <div class="col">第三次重写的时候，我们终于承认：问题不在组件库，在没人说得清一个按钮该有几种状态。这一期记录了那三个月里所有走错的路，以及最后剩下的十七条约定。</div>
+  <div class="foot"><span>Field Notes</span><span>2026 / 08</span></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="newsprint" data-w="1200" data-h="630" data-file="newsprint">
+ <div class="wi-head"><span class="wi-name">newsprint · 报纸</span><span class="wi-use">年度盘点 OG · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board newsprint">
+  <div class="mast"><span>第 12 号</span><span>设 计 年 鉴</span><span>2026 年 12 月</span></div>
+  <div class="lines"></div>
+  <h2>这一年，我们改了 47 版</h2>
+  <div class="cols">
+   <div>最长的一个需求走了 9 个月，最短的从提出到上线只用了 40 分钟。两个都活了下来。</div>
+   <div>年度最贵的教训：没人反对的方案，通常也没人真的想要。我们为此重做了两次。</div>
+  </div>
+  <div class="foot"><span>年度回顾 · 全文六千字</span><span>扫码阅读</span></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="blueprint" data-w="1500" data-h="600" data-file="blueprint">
+ <div class="wi-head"><span class="wi-name">blueprint · 工程蓝图</span><span class="wi-use">技术文档头图 · 5:2</span></div>
+ <div class="wi-frame"><div class="board blueprint">
+  <div class="grid"></div>
+  <span class="x" style="left:40px;top:36px">+</span><span class="x" style="right:40px;top:36px">+</span><span class="x" style="left:40px;bottom:32px">+</span>
+  <div class="k">DWG-04 / RENDER-PIPELINE v2</div>
+  <h2>渲染管线<br>重写记录</h2>
+  <div class="dim"><span>0</span><i></i><span>18ms</span></div>
+  <p class="sub">首屏从 240ms 降到 18ms。这份文档记录了每一步的取舍。</p>
+  <div class="tblock">
+   <div><span>版本</span><span>v2.4.0</span></div>
+   <div><span>基准</span><span>M1 / Chrome 138</span></div>
+  </div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="archive" data-w="1080" data-h="1080" data-file="archive">
+ <div class="wi-head"><span class="wi-name">archive · 档案手稿</span><span class="wi-use">项目复盘 · 1:1</span></div>
+ <div class="wi-frame"><div class="board archive">
+  <div class="holes"><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="stamp">已结案</div>
+  <div class="k">CASE FILE NO. 004</div>
+  <h2>一次失败的<br>重构</h2>
+  <div class="fields">
+   <div><b>起因</b><u>「先重构再说，代码太乱了」</u></div>
+   <div><b>耗时</b><u>预估 2 周 · 实际 11 周</u></div>
+   <div><b>结论</b><u>回滚。旧代码乱，但它是对的</u></div>
+   <div><b>教训</b><u>没有测试的重构叫重写</u></div>
+  </div>
+  <div class="grain" style="opacity:.5"></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="bauhaus" data-w="1080" data-h="1440" data-file="bauhaus">
+ <div class="wi-head"><span class="wi-name">bauhaus · 包豪斯</span><span class="wi-use">展览海报 · 3:4</span></div>
+ <div class="wi-frame"><div class="board bauhaus">
+  <i class="shape circ"></i><i class="shape sq"></i><i class="shape tri"></i>
+  <div class="k">Ausstellung</div>
+  <h2>形式<br>追随<br>功能</h2>
+  <div class="meta">包豪斯百年设计展<span>9.12 — 11.30</span>市立美术馆 2F</div>
+  <div class="foot">BAUHAUS 1919 — 2026</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="deco" data-w="1080" data-h="1920" data-file="deco">
+ <div class="wi-head"><span class="wi-name">deco · 装饰艺术</span><span class="wi-use">邀请函 · 9:16</span></div>
+ <div class="wi-frame"><div class="board deco">
+  <div class="fan"></div>
+  <div class="frame"><div class="inner">
+   <div class="k">The Tenth</div>
+   <h2>十周年<br>晚宴</h2>
+   <div class="bar"></div>
+   <div class="meta">十一月十六日 星期六<br>十九时 · 和平饭店</div>
+   <div class="sub">Black Tie · RSVP</div>
+  </div></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="riso" data-w="1080" data-h="1440" data-file="riso">
+ <div class="wi-head"><span class="wi-name">riso · 双色印刷</span><span class="wi-use">演出海报 · 3:4</span></div>
+ <div class="wi-frame"><div class="board riso">
+  <i class="blob b1"></i><i class="blob b2"></i>
+  <div class="k">Live · 2 Colors Only</div>
+  <div class="stack" data-overlap-ok><h2 class="off">噪音<br>与<br>回声</h2><h2>噪音<br>与<br>回声</h2></div>
+  <div class="meta">10.24 SAT 20:00<span>地下室 Livehouse</span></div>
+  <div class="foot">RISOGRAPH PRINT · 200 COPIES</div>
+  <div class="grain" style="opacity:.55"></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="brutalist" data-w="1200" data-h="630" data-file="brutalist">
+ <div class="wi-head"><span class="wi-name">brutalist · 粗野主义</span><span class="wi-use">观点宣言 OG · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board brutalist">
+  <div class="box b1">TODO</div><div class="box b2">NO</div><i class="slab"></i>
+  <div class="k">NO.04 / MANIFESTO</div>
+  <h2>别再做<br>待办应用</h2>
+  <p class="sub">这个世界不需要第 4001 个待办应用。它需要你把手上那件事做完。</p>
+  <div class="big">04</div>
+  <div class="foot">MANIFESTO — 全文 2400 字 — 慎入</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="memphis" data-w="1080" data-h="1080" data-file="memphis">
+ <div class="wi-head"><span class="wi-name">memphis · 孟菲斯</span><span class="wi-use">活动海报 · 1:1</span></div>
+ <div class="wi-frame"><div class="board memphis">
+  <i class="stripe"></i><i class="pill"></i><i class="dots"></i>
+  <svg class="wave" viewBox="0 0 380 44" fill="none" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+   <path d="M0 34 Q 31.7 4 63.3 34 T 126.7 34 T 190 34 T 253.3 34 T 316.7 34 T 380 34" stroke="#ff6b6b" stroke-width="10" stroke-linecap="round"/></svg>
+  <span class="k">FRIDAY NIGHT</span>
+  <h2>周五<br>夜市</h2>
+  <div class="meta">每周五 18:00 — 23:00<span>创意园区 · 三号仓库</span></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="wabi" data-w="1200" data-h="630" data-file="wabi">
+ <div class="wi-head"><span class="wi-name">wabi · 日式侘寂</span><span class="wi-use">器物/展览 · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board wabi">
+  <i class="moon"></i>
+  <div class="vert">用いるほどに 育つうつわ</div>
+  <div class="line"></div>
+  <h2>一只碗，用了十年</h2>
+  <div class="sub">器 物 展 · 十 月 十 二 日 起</div>
+  <div class="seal">器</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="ink" data-w="1080" data-h="1440" data-file="ink">
+ <div class="wi-head"><span class="wi-name">ink · 中式水墨</span><span class="wi-use">节气 · 3:4</span></div>
+ <div class="wi-frame"><div class="board ink">
+  <svg class="wash" viewBox="0 0 900 760" xmlns="http://www.w3.org/2000/svg">
+   <defs>
+    <filter id="ink-a" x="-25%" y="-25%" width="150%" height="150%">
+     <feTurbulence type="fractalNoise" baseFrequency="0.010" numOctaves="4" seed="11" result="n"/>
+     <feDisplacementMap in="SourceGraphic" in2="n" scale="62" xChannelSelector="R" yChannelSelector="G"/>
+     <feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="ink-b" x="-25%" y="-25%" width="150%" height="150%">
+     <feTurbulence type="fractalNoise" baseFrequency="0.017" numOctaves="3" seed="3" result="m"/>
+     <feDisplacementMap in="SourceGraphic" in2="m" scale="46" xChannelSelector="R" yChannelSelector="G"/>
+     <feGaussianBlur stdDeviation="5"/></filter>
+   </defs>
+   <ellipse cx="372" cy="372" rx="298" ry="228" fill="#1a1a18" opacity=".14" filter="url(#ink-a)"/>
+   <ellipse cx="326" cy="428" rx="208" ry="158" fill="#121210" opacity=".32" filter="url(#ink-b)"/>
+   <ellipse cx="282" cy="482" rx="128" ry="98" fill="#0b0b09" opacity=".6" filter="url(#ink-a)"/>
+   <ellipse cx="256" cy="516" rx="66" ry="50" fill="#070706" opacity=".84" filter="url(#ink-b)"/>
+  </svg>
+  <div class="right">
+   <div class="main">
+    <h2>立秋</h2>
+    <div class="sub">云天收夏色<br>木叶动秋声</div>
+   </div>
+   <div class="k">丙午年 · 七月十四</div>
+  </div>
+  <div class="seal">节气</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="terminal" data-w="900" data-h="383" data-file="terminal">
+ <div class="wi-head"><span class="wi-name">terminal · 终端</span><span class="wi-use">公众号头条封面 · 2.35:1</span></div>
+ <div class="wi-frame"><div class="board terminal">
+  <i class="band"></i><div class="scan"></div>
+  <div class="k">▸ CHANGELOG / v2.4.0</div>
+  <h2>我们删掉了<mark>八千行</mark>代码<i class="cur"></i></h2>
+  <p class="sub">$ git diff --stat  →  312 files changed, 8104 deletions(-)</p>
+  <div class="foot"><span>工程周刊 · 第 04 期</span><span>2026.08</span></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="aurora" data-w="1200" data-h="630" data-file="aurora">
+ <div class="wi-head"><span class="wi-name">aurora · 极光</span><span class="wi-use">SaaS 分享图 · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board aurora">
+  <div class="glow"></div>
+  <span class="k"><i></i>Now in beta</span>
+  <h2>三个人的团队，<br>也该有实时协作</h2>
+  <p class="sub">光标同步、离线合并、冲突自动解决。装上就能用，不用配服务器。</p>
+  <div class="foot"><span>试用 30 天</span><span>无需信用卡</span></div>
+  <div class="grain" style="opacity:.38"></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="luxe" data-w="1080" data-h="1440" data-file="luxe">
+ <div class="wi-head"><span class="wi-name">luxe · 奢侈品</span><span class="wi-use">香氛品牌 · 3:4</span></div>
+ <div class="wi-frame"><div class="board luxe">
+  <div class="k">Maison</div>
+  <div class="hr"></div>
+  <h2>AETHER</h2>
+  <div class="zh">以太</div>
+  <div class="hr"></div>
+  <div class="sub">Eau de Parfum · 50ml</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="product" data-w="1200" data-h="630" data-file="product">
+ <div class="wi-head"><span class="wi-name">product · 极简产品</span><span class="wi-use">功能发布 OG · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board product">
+  <div class="brand"><i></i>Framewise</div>
+  <h2>一次导出<br>全平台尺寸</h2>
+  <p class="sub">选好画板，剩下的交给我们。头像、封面、横幅一次出齐。</p>
+  <div class="chips"><span class="on">1200 × 630</span><span>1080 × 1440</span><span>1024 × 1024</span><span>+9 种</span></div>
+ </div></div>
+</section>
+
+
+<section class="wi-card" id="sketch" data-w="1200" data-h="630" data-file="sketch">
+ <div class="wi-head"><span class="wi-name">sketch · 手绘</span><span class="wi-use">教程、白板笔记、脑图、亲和力强的科普</span></div>
+ <div class="wi-frame"><div class="board sketch">
+  <svg width="0" height="0" style="position:absolute" xmlns="http://www.w3.org/2000/svg"><defs>
+   <filter id="sk-w" x="-12%" y="-25%" width="124%" height="150%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="5" result="t"/>
+    <feDisplacementMap in="SourceGraphic" in2="t" scale="7" xChannelSelector="R" yChannelSelector="G"/></filter>
+   <filter id="sk-a" x="-25%" y="-25%" width="150%" height="150%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="9" result="a"/>
+    <feDisplacementMap in="SourceGraphic" in2="a" scale="4.5" xChannelSelector="R" yChannelSelector="G"/></filter>
+  </defs></svg>
+  <div class="paper"></div>
+  <div class="k">✎ 十分钟搞懂 · 04</div>
+  <div class="wrap">
+   <svg class="fr" viewBox="0 0 560 220" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="7" y="7" width="546" height="206" rx="12" fill="none" stroke="#2b3a55" stroke-width="3.4" filter="url(#sk-w)"/></svg>
+   <h2>浏览器<br>怎么<em>画一帧</em></h2>
+  </div>
+  <div class="flow">
+   <div class="node"><svg viewBox="0 0 96 74" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="90" height="68" rx="8" fill="none" stroke="#2b3a55" stroke-width="2.6" filter="url(#sk-w)"/></svg><span>解析</span></div>
+   <svg class="ar" viewBox="0 0 52 26" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#8493ab" stroke-width="2.6" stroke-linecap="round" filter="url(#sk-a)"><path d="M2 13 H46"/><path d="M36 5 L47 13 L36 21"/></g></svg>
+   <div class="node"><svg viewBox="0 0 96 74" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="90" height="68" rx="8" fill="none" stroke="#2b3a55" stroke-width="2.6" filter="url(#sk-w)"/></svg><span>布局</span></div>
+   <svg class="ar" viewBox="0 0 52 26" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#8493ab" stroke-width="2.6" stroke-linecap="round" filter="url(#sk-a)"><path d="M2 13 H46"/><path d="M36 5 L47 13 L36 21"/></g></svg>
+   <div class="node"><svg viewBox="0 0 96 74" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="90" height="68" rx="8" fill="none" stroke="#2b3a55" stroke-width="2.6" filter="url(#sk-w)"/></svg><span>绘制</span></div>
+  </div>
+  <div class="note">卡顿多半<br>卡在这一步</div>
+  <svg class="arw" viewBox="0 0 104 70" xmlns="http://www.w3.org/2000/svg">
+   <g fill="none" stroke="#ff7b6b" stroke-width="3.2" stroke-linecap="round" filter="url(#sk-a)">
+    <path d="M98 14 C 70 12, 32 26, 10 56"/><path d="M8 34 L9 58 L32 54"/></g></svg>
+  <div class="list">
+   <div><svg viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#2b3a55" stroke-width="2.6" stroke-linecap="round" filter="url(#sk-a)"><rect x="3" y="3" width="24" height="24" rx="5"/><path d="M8 16 L13 22 L23 8" stroke="#ff7b6b" stroke-width="3.2"/></g></svg>样式计算</div>
+   <div><svg viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#2b3a55" stroke-width="2.6" stroke-linecap="round" filter="url(#sk-a)"><rect x="3" y="3" width="24" height="24" rx="5"/><path d="M8 16 L13 22 L23 8" stroke="#ff7b6b" stroke-width="3.2"/></g></svg>布局重排</div>
+   <div><svg viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg"><g fill="none" stroke="#2b3a55" stroke-width="2.6" stroke-linecap="round" filter="url(#sk-a)"><rect x="3" y="3" width="24" height="24" rx="5"/><path d="M8 16 L13 22 L23 8" stroke="#ff7b6b" stroke-width="3.2"/></g></svg>图层合成</div>
+  </div>
+  <div class="tape">重排比重绘<br>贵得多</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="comic" data-w="1080" data-h="1080" data-file="comic">
+ <div class="wi-head"><span class="wi-name">comic · 美漫波普</span><span class="wi-use">促销/活动 · 1:1</span></div>
+ <div class="wi-frame"><div class="board comic">
+  <div class="half"></div>
+  <div class="burst"><b>限<br>今天!</b></div>
+  <span class="k">FLASH SALE</span>
+  <h2>买一<br>送一</h2>
+  <div class="bub">全场手冲豆，第二袋不要钱！</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="neon" data-w="1280" data-h="720" data-file="neon">
+ <div class="wi-head"><span class="wi-name">neon · 霓虹赛博</span><span class="wi-use">直播间封面 · 16:9</span></div>
+ <div class="wi-frame"><div class="board neon">
+  <div class="horizon"></div><div class="fade"></div>
+  <div class="k">▸ LIVE 每周三 23:00</div>
+  <h2>深夜<br>写代码</h2>
+  <div class="bar"></div>
+  <p class="sub">$ 一个人，一杯咖啡，一个跑不起来的 CI</p>
+ </div></div>
+</section>
+
+<section class="wi-card" id="y2k" data-w="1080" data-h="1440" data-file="y2k">
+ <div class="wi-head"><span class="wi-name">y2k · 千禧</span><span class="wi-use">潮流单品 · 3:4</span></div>
+ <div class="wi-frame"><div class="board y2k">
+  <div class="net"></div><i class="jelly"></i>
+  <i class="star" style="right:130px;top:120px;width:150px;height:150px"></i>
+  <i class="star" style="right:330px;top:300px;width:74px;height:74px"></i>
+  <i class="star" style="left:96px;bottom:330px;width:98px;height:98px"></i>
+  <span class="k">★ SINCE 2000 ★</span>
+  <h2>低腰牛仔<br>回来了</h2>
+  <p class="sub">千禧年那批衣服，<br>又挂回了货架上。</p>
+  <div class="foot">FW26 COLLECTION / DROP 04</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="vapor" data-w="1024" data-h="1024" data-file="vapor">
+ <div class="wi-head"><span class="wi-name">vapor · 蒸汽波</span><span class="wi-use">播客封面 · 1:1</span></div>
+ <div class="wi-frame"><div class="board vapor">
+  <i class="sun"></i>
+  <i class="slat" style="top:400px;height:11px"></i><i class="slat" style="top:432px;height:15px"></i>
+  <i class="slat" style="top:470px;height:20px"></i><i class="slat" style="top:516px;height:26px"></i>
+  <div class="grid"></div>
+  <div class="k">Ｎ Ｉ Ｇ Ｈ Ｔ</div>
+  <h2>夜间频道</h2>
+  <div class="foot">深 夜 电 台 · 每 周 六 更 新<br>ＥＰ．０４</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="retro70" data-w="1080" data-h="1080" data-file="retro70">
+ <div class="wi-head"><span class="wi-name">retro70 · 复古未来</span><span class="wi-use">咖啡品牌 · 1:1</span></div>
+ <div class="wi-frame"><div class="board retro">
+  <div class="rb"><i></i><i></i><i></i></div><div class="arc"></div>
+  <div class="inner">
+   <div class="k">Est. 1974</div>
+   <h2>日晒<br>耶加雪菲</h2>
+   <p class="sub">莓果、红酒、可可。<br>浅焙，适合手冲。</p>
+   <div class="foot">SUNRISE COFFEE ROASTERS</div>
+  </div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="cinematic" data-w="1080" data-h="1920" data-file="cinematic">
+ <div class="wi-head"><span class="wi-name">cinematic · 电影海报</span><span class="wi-use">纪录片海报 · 9:16</span></div>
+ <div class="wi-frame"><div class="board cine">
+  <div class="vig"></div>
+  <div class="tag">他们花了十一年<br>只为把一条河还回去</div>
+  <h2>还河</h2>
+  <div class="bill">十一月十六日 全国艺联专线上映</div>
+  <div class="credits">
+   青云影业 出品　<b>导演</b> 沈 未　<b>摄影</b> 陆 岸　<b>剪辑</b> 何 昭　<b>音乐</b> 林 一 白<br>
+   <b>制片</b> 周 蔓 · 高 屿　<b>录音</b> 徐 川　<b>调色</b> 苏 沐　<b>美术</b> 韩 冬<br>
+   摄于 云南 · 怒江 · 独龙江　拍摄周期 2015 — 2026　　全片 138 分钟<br>
+   <b>入围</b> 山形国际纪录片影展 · 亚洲新浪潮单元　　MMXXVI
+  </div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="chalk" data-w="1080" data-h="1080" data-file="chalk">
+ <div class="wi-head"><span class="wi-name">chalk · 黑板</span><span class="wi-use">咖啡菜单 · 1:1</span></div>
+ <div class="wi-frame"><div class="board chalk">
+  <div class="inner">
+   <div class="k">— TODAY'S POUR OVER —</div>
+   <h2>今日手冲</h2>
+   <svg class="ul" viewBox="0 0 400 56" xmlns="http://www.w3.org/2000/svg">
+    <defs><filter id="ck" x="-10%" y="-40%" width="120%" height="180%">
+     <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="2" seed="6" result="c"/>
+     <feDisplacementMap in="SourceGraphic" in2="c" scale="6" xChannelSelector="R" yChannelSelector="G"/>
+    </filter></defs>
+    <path d="M6 30 C 106 18, 240 40, 394 24" fill="none" stroke="#eef3ee" stroke-width="3.4" stroke-linecap="round" opacity=".85" filter="url(#ck)"/></svg>
+   <div class="menu">
+    <div>耶加雪菲 日晒<i></i><b>38</b></div>
+    <div>危地马拉 薇薇特南果<i></i><b>42</b></div>
+    <div>瑰夏 水洗 · 限量<i></i><b>68</b></div>
+   </div>
+   <div class="foot"><span>今日烘焙 · 浅中焙</span><span>08 / 21</span></div>
+  </div>
+  <div class="dust"></div>
+ </div></div>
+</section>
+
+
+<section class="wi-card" id="pixel" data-w="1280" data-h="720" data-file="pixel">
+ <div class="wi-head"><span class="wi-name">pixel · 像素</span><span class="wi-use">独立游戏封面 · 16:9</span></div>
+ <div class="wi-frame"><div class="board pixel">
+  <div class="scan"></div>
+  <span class="k px">▶ COMING 2026</span>
+  <h2>洞窟与<br>面包店</h2>
+  <div class="bar"><i style="background:#ef7d57"></i><i style="background:#ffcd75"></i><i style="background:#38b764"></i><i style="background:#41a6f6"></i></div>
+  <p class="sub">A COZY DUNGEON BAKERY SIM · 白天烤面包，晚上下副本</p>
+  <div class="hp"><span>DEMO</span><span class="track"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span>70%</span></div>
+  <svg class="icon" width="250" height="250" viewBox="0 0 23 23" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">
+   <rect x="1" y="3" width="21" height="17" fill="#2a2f4a"/>
+   <rect x="2" y="4" width="19" height="15" fill="#41a6f6"/>
+   <rect x="15" y="6" width="3" height="3" fill="#ffcd75"/>
+   <path d="M3 16h2v-2h2v-2h2v2h2v2h2v-3h2v3h3v3H3z" fill="#38b764"/>
+   <rect x="1" y="20" width="21" height="1" fill="#2a2f4a"/><rect x="8" y="21" width="7" height="1" fill="#2a2f4a"/>
+  </svg>
+  <div class="foot">WISHLIST ON STEAM</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="collage" data-w="1080" data-h="1440" data-file="collage">
+ <div class="wi-head"><span class="wi-name">collage · 拼贴</span><span class="wi-use">播客封面 · 3:4</span></div>
+ <div class="wi-frame"><div class="board collage">
+  <i class="sheet" style="left:-40px;top:120px;width:620px;height:620px;transform:rotate(-2deg)"></i>
+  <i class="sheet" style="right:-30px;top:560px;width:340px;height:400px;transform:rotate(3deg)"></i>
+  <i class="tape" style="left:150px;top:96px;width:160px;height:40px;transform:rotate(-6deg)"></i>
+  <i class="tape" style="right:20px;top:540px;width:130px;height:34px;transform:rotate(8deg)"></i>
+  <span class="k">EP.04 / 剪 与 贴</span>
+  <h2 data-overlap-ok><span class="a">没</span><span class="b">什么</span><br><span class="c">要紧</span><span class="d">事</span></h2>
+  <div class="clip">两个做设计的人，每周聊四十分钟不着边际的事。这一期聊：为什么好看的东西越来越像。</div>
+  <div class="foot">每周三更新 · 小宇宙</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="watercolor" data-w="1080" data-h="1440" data-file="watercolor">
+ <div class="wi-head"><span class="wi-name">watercolor · 水彩</span><span class="wi-use">疗愈/生活方式 · 3:4</span></div>
+ <div class="wi-frame"><div class="board watercolor">
+  <svg class="wc" style="right:-90px;top:-40px;width:760px;height:700px" viewBox="0 0 760 700" xmlns="http://www.w3.org/2000/svg">
+   <defs>
+    <filter id="wc-a" x="-25%" y="-25%" width="150%" height="150%">
+     <feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves="4" seed="21" result="n"/>
+     <feDisplacementMap in="SourceGraphic" in2="n" scale="72" xChannelSelector="R" yChannelSelector="G"/>
+     <feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="wc-b" x="-25%" y="-25%" width="150%" height="150%">
+     <feTurbulence type="fractalNoise" baseFrequency="0.016" numOctaves="3" seed="6" result="m"/>
+     <feDisplacementMap in="SourceGraphic" in2="m" scale="56" xChannelSelector="R" yChannelSelector="G"/>
+     <feGaussianBlur stdDeviation="5"/></filter>
+   </defs>
+   <ellipse cx="340" cy="236" rx="238" ry="188" fill="#6fb0dc" opacity=".44" filter="url(#wc-a)"/>
+   <ellipse cx="520" cy="420" rx="200" ry="168" fill="#f5a288" opacity=".42" filter="url(#wc-b)"/>
+   <ellipse cx="238" cy="470" rx="142" ry="118" fill="#9ec98a" opacity=".32" filter="url(#wc-b)"/>
+  </svg>
+  <div class="k">Slow · No.04</div>
+  <h2>慢一点<br>也没关系</h2>
+  <p class="sub">今天没做完的事，<br>明天的太阳照样会升起来。</p>
+  <div class="foot">一 期 一 会</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="botanical" data-w="1080" data-h="1440" data-file="botanical">
+ <div class="wi-head"><span class="wi-name">botanical · 博物图鉴</span><span class="wi-use">茶饮/香氛品牌 · 3:4</span></div>
+ <div class="wi-frame"><div class="board botanical">
+  <div class="frame"></div><div class="frame2"></div>
+  <div class="k">Plate IV · Camelliae</div>
+  <svg class="plant" viewBox="0 0 420 560" xmlns="http://www.w3.org/2000/svg">
+   <g fill="none" stroke="#5c6b4f" stroke-width="2" stroke-linecap="round">
+    <path d="M210 552 C 210 420, 205 290, 214 132"/>
+    <path d="M212 424 C 158 412, 112 376, 98 318 C 160 314, 204 360, 212 424Z" fill="#8fa37c" fill-opacity=".2"/>
+    <path d="M211 352 C 268 342, 314 300, 324 242 C 260 242, 218 288, 211 352Z" fill="#8fa37c" fill-opacity=".2"/>
+    <path d="M213 268 C 160 258, 118 218, 108 164 C 168 164, 206 206, 213 268Z" fill="#8fa37c" fill-opacity=".2"/>
+    <path d="M213 198 C 262 188, 300 152, 309 106 C 255 106, 220 144, 213 198Z" fill="#8fa37c" fill-opacity=".2"/>
+    <path d="M98 318 L212 424 M324 242 L211 352 M108 164 L213 268 M309 106 L213 198"/>
+    <circle cx="214" cy="94" r="26" fill="#f0eee4"/>
+    <circle cx="214" cy="94" r="9" fill="#d9b45a" fill-opacity=".5"/>
+    <path d="M214 68 C 200 76, 196 86, 200 94 M214 68 C 228 76, 232 86, 228 94"/>
+   </g></svg>
+  <h2>白 茶</h2>
+  <div class="lat">Camellia sinensis</div>
+  <div class="label">
+   <div><b>产地</b>福鼎 · 太姥山</div><div><b>采摘</b>清明前 · 一芽一叶</div><div><b>工艺</b>萎凋 · 日晒 · 不揉不炒</div></div>
+  <div class="no">FIG. 04</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="lineart" data-w="1500" data-h="600" data-file="lineart">
+ <div class="wi-head"><span class="wi-name">line · 极简线条</span><span class="wi-use">咨询公司站点 Hero · 5:2</span></div>
+ <div class="wi-frame"><div class="board lineart">
+  <svg class="draw" viewBox="0 0 640 600" xmlns="http://www.w3.org/2000/svg">
+   <g fill="none" stroke="#1e1e1c" stroke-width="1.2" stroke-linecap="round">
+    <circle cx="360" cy="290" r="190"/>
+    <path d="M170 290 C 240 164, 480 164, 550 290 C 480 416, 240 416, 170 290Z"/>
+    <circle cx="360" cy="290" r="72"/>
+    <path d="M360 100 L360 480 M170 290 L550 290"/>
+   </g>
+   <circle cx="360" cy="290" r="15" fill="#c2482f"/></svg>
+  <div class="inner">
+   <div class="k">Studio Notes · 04</div>
+   <h2>先看清楚<br>再动手</h2>
+   <p class="sub">我们花六周做调研，只做四周执行。多数项目死于第一周就开始改稿。</p>
+   <div class="foot">STRATEGY · RESEARCH · DESIGN</div>
+  </div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="guochao" data-w="1080" data-h="1920" data-file="guochao">
+ <div class="wi-head"><span class="wi-name">guochao · 国潮</span><span class="wi-use">春节祝福 · 9:16</span></div>
+ <div class="wi-frame"><div class="board guochao">
+  <div class="bd"></div><div class="bd2"></div>
+  <i class="corner" style="left:60px;top:60px;border-right:0;border-bottom:0"></i>
+  <i class="corner" style="right:60px;top:60px;border-left:0;border-bottom:0"></i>
+  <i class="corner" style="left:60px;bottom:60px;border-right:0;border-top:0"></i>
+  <i class="corner" style="right:60px;bottom:60px;border-left:0;border-top:0"></i>
+  <svg class="cloud" style="left:50%;transform:translateX(-50%);bottom:640px;width:560px;height:96px" viewBox="0 0 560 96" xmlns="http://www.w3.org/2000/svg">
+   <g fill="none" stroke="#f7e9c8" stroke-width="3" stroke-linecap="round">
+    <path d="M14 82 q0-22 22-22 q3-24 27-24 q14-19 35-5 q19-16 35 5 q24-3 24 24 q19 0 19 22"/>
+    <path d="M190 82 q0-22 22-22 q3-24 27-24 q14-19 35-5 q19-16 35 5 q24-3 24 24 q19 0 19 22"/>
+    <path d="M366 82 q0-22 22-22 q3-24 27-24 q14-19 35-5 q19-16 35 5 q24-3 24 24 q19 0 19 22"/>
+    <path d="M0 90 H560"/></g></svg>
+  <div class="k">丙午年 · 正月初一</div>
+  <h2>新春<br>大吉</h2>
+  <div class="sub">岁岁平安 · 万事胜意</div>
+  <div class="seal">福</div>
+  <div class="foot">恭 贺 新 禧</div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="street" data-w="1080" data-h="1920" data-file="street">
+ <div class="wi-head"><span class="wi-name">street · 街头海报</span><span class="wi-use">演出海报 · 9:16</span></div>
+ <div class="wi-frame"><div class="board street">
+  <i class="torn" style="left:-30px;top:56px;width:700px;height:900px;transform:rotate(-1.6deg)"></i>
+  <i class="torn" style="right:-40px;top:1080px;width:420px;height:520px;transform:rotate(2.4deg)"></i>
+  <span class="k">DIY OR DIE</span>
+  <h2>拆掉<br><em>重来</em></h2>
+  <div class="meta">11.08 SAT<span>21:00 · 地下二层</span><span>五支乐队 / 门票 80</span></div>
+  <div class="stencil">SOLD OUT</div>
+  <div class="foot">FLYPOSTING · DO NOT REMOVE</div>
+  <div class="spray"></div>
+ </div></div>
+</section>
+
+<section class="wi-card" id="glass" data-w="1200" data-h="630" data-file="glass">
+ <div class="wi-head"><span class="wi-name">glass · 玻璃</span><span class="wi-use">版本发布公告 · 1.91:1</span></div>
+ <div class="wi-frame"><div class="board glass">
+  <i class="orb" style="left:-60px;top:-90px;width:420px;height:380px;background:rgba(90,190,255,.5)"></i>
+  <i class="orb" style="right:-40px;bottom:-110px;width:440px;height:360px;background:rgba(160,120,255,.42)"></i>
+  <i class="orb" style="right:210px;top:-70px;width:300px;height:260px;background:rgba(80,230,200,.34)"></i>
+  <div class="card">
+   <span class="k"><i></i>v3.0 已上线</span>
+   <h2>启动快了 6 倍</h2>
+   <p class="sub">重写了索引层。两万个文件的项目，冷启动从 12 秒降到 1.9 秒。</p>
+   <div class="foot"><span>自动更新已推送</span><span>查看完整日志</span></div>
+  </div>
+ </div></div>
+</section>
+
+</main>
+
+<script src="../assets/export.js"></script>
+<script src="../assets/studio.js"></script>
+</body>
+</html>

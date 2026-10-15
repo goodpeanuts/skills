@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{TITLE}}</title>
+<link rel="stylesheet" href="./studio.css">
+<style>
+/* ============ 设计变量: 每次生成时按选定的视觉方向重写 ============ */
+:root{
+  --ink:#14151a; --sub:#5b6070; --line:#e3e5ec; --paper:#fbfbfd; --accent:#2f5cff;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --serif:"Songti SC","Source Han Serif SC",Georgia,"Times New Roman",serif;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+}
+/* 画板内部统一底色/字体; 具体画面样式写在下面各自的 class 里 */
+.board{ background:var(--paper); color:var(--ink); font-family:var(--sans); }
+
+/* ============ 各画板样式 ============ */
+/* {{STYLES}} */
+</style>
+<!-- 需要非系统字体时, 把 @font-face(base64) 放进这个标签, 导出引擎会一并写进 SVG:
+<style id="export-fonts">@font-face{font-family:"X";src:url(data:font/woff2;base64,...)}</style> -->
+</head>
+<body>
+
+<header class="wi-bar">
+  <h1>{{TITLE}}</h1>
+  <span class="wi-note"></span>
+  <span class="wi-sp"></span>
+  <button class="wi-btn" data-all="zoom">缩放: 自适应</button>
+  <button class="wi-btn" data-all="grid">构图网格</button>
+  <button class="wi-btn" data-all="1">全部导出 1x</button>
+  <button class="wi-btn" data-all="2">全部导出 2x</button>
+</header>
+
+<main class="wi-sheet">
+
+  <!-- ============ 一张画板 = 一个 .wi-card ============
+       data-w/data-h : 真实像素(导出尺寸), 必填
+       data-file     : 导出文件名
+       .wi-use       : 一句话说明这张图用在哪 -->
+  <section class="wi-card" id="board-1" data-w="1200" data-h="630" data-file="og-cover">
+    <div class="wi-head">
+      <span class="wi-name">示例画板</span>
+      <span class="wi-use">用于: OG 分享图 / 微信公众号次条封面</span>
+    </div>
+    <div class="wi-frame">
+      <div class="board">
+        <!-- 画面内容 -->
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="./export.js"></script>
+<script src="./studio.js"></script>
+</body>
+</html>

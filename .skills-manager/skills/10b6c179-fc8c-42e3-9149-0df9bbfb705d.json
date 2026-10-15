@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "skill_id": "10b6c179-fc8c-42e3-9149-0df9bbfb705d",
+  "path": "web-image",
+  "path_key": "web-image",
+  "enabled": true,
+  "tags": [],
+  "source": {
+    "type": "git",
+    "ref": "https://github.com/BaYue-SYJ/web-html-image-skill",
+    "subpath": null,
+    "branch": null
+  }
+}

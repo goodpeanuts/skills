@@ -1,0 +1,7 @@
+# 出图产物
+png/
+out/
+*.tmp
+
+# macOS
+.DS_Store

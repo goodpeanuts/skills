@@ -1,0 +1,75 @@
+/* web-image · 工作台外壳样式。只负责“展示与导出”, 不参与画面设计。
+   画板内部的一切样式请写在 index.html 自己的 <style> 里。 */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--wi-bg, #0e0e11);
+  color: #e7e7ea;
+}
+.wi-bar {
+  position: sticky; top: 0; z-index: 50;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 18px;
+  background: rgba(16,16,20,.82);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.wi-bar h1 { font-size: 13px; font-weight: 600; margin: 0 8px 0 0; letter-spacing: .02em; }
+.wi-bar .wi-sp { flex: 1; }
+.wi-btn {
+  appearance: none; border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06); color: #e7e7ea;
+  padding: 5px 11px; border-radius: 7px; font-size: 12px; cursor: pointer;
+  font-family: inherit; transition: background .15s, border-color .15s;
+}
+.wi-btn:hover { background: rgba(255,255,255,.13); border-color: rgba(255,255,255,.24); }
+.wi-btn:active { transform: translateY(.5px); }
+.wi-btn[data-on="1"] { background: #4f7cff; border-color: #4f7cff; color: #fff; }
+.wi-note { font-size: 12px; color: #8a8a93; }
+
+.wi-sheet { padding: 28px 18px 120px; display: flex; flex-direction: column; gap: 34px; align-items: flex-start; }
+
+.wi-card { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+.wi-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.wi-name { font-size: 13px; font-weight: 600; }
+.wi-spec { font-size: 11px; color: #8a8a93; font-variant-numeric: tabular-nums; }
+.wi-use  { font-size: 11px; color: #6f6f79; }
+.wi-acts { display: flex; gap: 6px; margin-left: auto; }
+
+/* 预览容器: 布局尺寸 = 真实尺寸 x 缩放, 画板本体保持 1:1 真实像素后再 transform */
+.wi-frame {
+  position: relative; overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 18px 50px -20px rgba(0,0,0,.85);
+  background: repeating-conic-gradient(#1b1b20 0 25%, #16161a 0 50%) 0 0/16px 16px;
+}
+.wi-frame > .board { transform-origin: 0 0; }
+
+/* 画板本体: 真实像素, 导出的就是这个节点 */
+.board { position: relative; overflow: hidden; background: #fff; color: #111; }
+
+body[data-grid="1"] .board::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(to right, rgba(255,0,80,.22) 0 1px, transparent 1px 100%) 0 0/8.3333% 100%,
+    repeating-linear-gradient(to bottom, rgba(255,0,80,.10) 0 1px, transparent 1px 100%) 0 0/100% 40px;
+}
+
+.wi-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+  background: #24242b; border: 1px solid rgba(255,255,255,.14); color: #fff;
+  padding: 9px 16px; border-radius: 9px; font-size: 12.5px; z-index: 200;
+  opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 78vw;
+}
+.wi-toast[data-show="1"] { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Chrome headless 单张出图模式: 只留一个画板, 1:1, 无任何外壳 */
+body[data-shot] { background: transparent; }
+body[data-shot] .wi-bar, body[data-shot] .wi-head, body[data-shot] .wi-toast { display: none !important; }
+body[data-shot] .wi-sheet { padding: 0; gap: 0; }
+body[data-shot] .wi-card[hidden] { display: none !important; }
+body[data-shot] .wi-frame { border-radius: 0; box-shadow: none; background: none; }
+body[data-shot] .wi-frame > .board { transform: none !important; }

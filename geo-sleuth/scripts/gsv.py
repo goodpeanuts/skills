@@ -14,16 +14,19 @@ Examples:
   gsv.py sheet --at 35.6595,139.7005 --headings 0,60,120,180,240,300 --out around.jpg   # look around from a single point
   gsv.py sheet --ids ID1,ID2 --toward 35.6600,139.7010 --out s.jpg                     # every point faces the same target
   gsv.py sheet --points pts.json --heading 90 --date 2018 --out s2018.jpg              # only one capture (the year of the street-view watermark in the photo)
+  gsv.py targets --points churches.json --per 2 --out churches.index.json              # every target seen from the panoramas around it, for match.py rank --items
 """
 from __future__ import annotations
 
 import argparse
 from _net import curl_args, PROXY_HELP
 import json
+import math
 import os
 import re
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -35,32 +38,56 @@ from baidu_pano import _font  # noqa: E402
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 # official Street View car coverage only (user-uploaded panorama photos have ids like CIHM0og…, and the perspective endpoint can't render them)
-META = ("https://maps.googleapis.com/maps/api/js/GeoPhotoService.SingleImageSearch?pb=!1m5!1sapiv3!5sUS!11m2!1m1!1b0"
-        "!2m4!1m2!3d{lat}!4d{lon}!2d{radius}!3m10!2m2!1sen!2sUS!9m1!1e2!11m4!1m3!1e2!2b1!3e2"
-        "!4m6!1e1!1e2!1e3!1e4!1e8!1e6&callback=cb")
+# The Maps JS API's own panorama lookup (the GET endpoint GeoPhotoService.SingleImageSearch was turned down in 2026; same response layout)
+META = "https://maps.googleapis.com/$rpc/google.internal.maps.mapsjs.v1.MapsJsInternalService/SingleImageSearch"
 THUMB = ("https://streetviewpixels-pa.googleapis.com/v1/thumbnail?panoid={id}&cb_client=maps_sv.tactile"
          "&w={w}&h={h}&yaw={yaw:.1f}&pitch={pitch:.1f}&thumbfov={fov:.0f}")
+# Coverage layer the Maps web client draws: every official panorama inside one z17 tile (~300 m), one request per tile
+COVERAGE = "https://www.google.com/maps/photometa/ac/v1?pb=!1m1!1smaps_sv.tactile!6m3!1i{x}!2i{y}!3i17!8b1"
+# Bound lock storage while serializing workers that share a coverage tile.
+_COVERAGE_LOCKS = [threading.Lock() for _ in range(64)]
 
 
-def _curl(url: str, proxy: str | None, out: Path | None = None) -> bytes:
+def _curl(url: str, proxy: str | None, out: Path | None = None, data: str | None = None) -> bytes:
     cmd = ["curl", "-q", "-s", "-m", "40", "-A", UA]
     cmd += curl_args(proxy)
     if out:
         cmd += ["-o", str(out)]
+    if data is not None:
+        cmd += ["-X", "POST", "-H", "content-type: application/json+protobuf",
+                "-H", "x-user-agent: grpc-web-javascript/0.1", "--data", data]
     r = subprocess.run(cmd + [url], capture_output=True)
     return r.stdout
 
 
+class ServiceError(RuntimeError):
+    """Google answered with an error instead of a lookup result (endpoint changed, blocked, rate-limited)."""
+
+
+def _meta_query(lat: float, lon: float, radius: float) -> str:
+    # official Street View car coverage only ([2, true, 2]); the last list asks for address, date, neighbors and history
+    return json.dumps([["apiv3", None, None, None, "US", None, None, None, None, None, [[0]]],
+                       [[None, None, lat, lon], radius],
+                       [None, ["en", "US"], None, None, None, None, None, None, [2], None, [[[2, True, 2]]]],
+                       [[1, 2, 3, 4, 8, 6]]])
+
+
 def near(lat: float, lon: float, radius: float, proxy: str | None) -> dict | None:
-    t = _curl(META.format(lat=lat, lon=lon, radius=radius), proxy).decode("utf-8", "replace")
-    m = re.search(r"cb\(\s*(.*)\s*\)\s*;?\s*$", t, re.S)
-    if not m:
-        return None
+    """Nearest panorama within radius; None when there is none. Raises ServiceError when the lookup itself fails."""
+    t = _curl(META, proxy, data=_meta_query(lat, lon, radius)).decode("utf-8", "replace")
     try:
-        d = json.loads(m.group(1))
-        body = d[1]
-    except (json.JSONDecodeError, IndexError, TypeError):
-        return None
+        d = json.loads(t)
+    except json.JSONDecodeError:
+        raise ServiceError(f"unreadable reply: {' '.join(t.split())[:160] or 'empty (network?)'}") from None
+    try:
+        code = d[0][0]
+        body = d[1] if len(d) > 1 else None
+    except (IndexError, TypeError, KeyError):
+        raise ServiceError(f"unexpected reply: {t[:160]}") from None
+    if body is None:
+        if code == 5 and "no images" in t.lower():  # [[5, "generic", "Search returned no images."]]
+            return None
+        raise ServiceError(f"error reply: {t[:160]}")
     out: dict = {}
     try:
         out["id"] = body[1][1]
@@ -109,6 +136,87 @@ def pick_date(res: dict, date: str) -> dict | None:
         if p["date"] and p["date"].startswith(date):
             return p
     return None
+
+
+def _coverage_rows(t: str) -> list:
+    """Rows of one coverage reply. An empty tile (sea, no coverage) is []; anything else that isn't a coverage reply
+    (network failure, 429 page, changed layout) raises ServiceError so it isn't mistaken for missing coverage."""
+    if not t.startswith(")]}'"):
+        raise ServiceError(f"unreadable coverage reply: {' '.join(t.split())[:160] or 'empty (network?)'}")
+    try:
+        d = json.loads(t[t.index("\n") + 1:])
+    except ValueError:
+        raise ServiceError(f"unreadable coverage reply: {t[:160]}") from None
+    # with panoramas: [null, [null, [rows…]], …]; an empty tile: [null, null, [cells…]]
+    if not isinstance(d, list) or len(d) < 2 or not (d[1] is None or isinstance(d[1], list)):
+        raise ServiceError(f"unexpected coverage reply: {t[:160]}")
+    if d[1] is None:
+        return []
+    rows = d[1][1] if len(d[1]) > 1 else None
+    if not (rows is None or isinstance(rows, list)):
+        raise ServiceError(f"unexpected coverage reply: {t[:160]}")
+    return rows or []
+
+
+def tile_panos(x: int, y: int, proxy: str | None, cache: Path) -> list[tuple[str, float, float]]:
+    """All official panoramas in z17 tile (x, y) as (id, lat, lon). An empty tile (sea, no coverage) is [].
+    Only replies that parse as coverage are cached; a failed lookup raises ServiceError and is retried next time."""
+    cache.mkdir(parents=True, exist_ok=True)
+    x %= 2 ** 17  # tiles wrap at the antimeridian
+    p = cache / f"cov17_{x}_{y}.txt"
+    with _COVERAGE_LOCKS[hash(p.resolve()) % len(_COVERAGE_LOCKS)]:
+        try:
+            rows = _coverage_rows(p.read_text(encoding="utf-8", errors="replace"))
+        except (FileNotFoundError, ServiceError):
+            p.unlink(missing_ok=True)  # missing, empty, or invalid cache: fetch again
+            t = _curl(COVERAGE.format(x=x, y=y), proxy).decode("utf-8", "replace")
+            rows = _coverage_rows(t)
+            # Atomic replacement also protects readers in other processes.
+            tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(t, encoding="utf-8")
+            os.replace(tmp, p)
+    out = []
+    for r in rows:
+        try:
+            pid, ll = r[0][0][1], r[0][2][0]
+            # same filter as near(): user-uploaded panoramas can't be rendered as perspective views
+            if len(pid) == 22 and not pid.startswith(("CIHM", "CIAB", "CAoS")):
+                out.append((pid, float(ll[2]), float(ll[3])))
+        except (IndexError, TypeError, ValueError):
+            continue
+    return out
+
+
+def tiles_around(lat: float, lon: float, max_d: float) -> list[tuple[int, int]]:
+    """z17 tiles covering every point within max_d metres of (lat, lon); tiles get narrower towards the poles."""
+    dlat = math.degrees(max_d / geo._R)
+    dlon = math.degrees(max_d / (geo._R * max(math.cos(math.radians(lat)), 1e-6)))
+    top = min(lat + dlat, 85.05)
+    bottom = max(lat - dlat, -85.05)
+    x0, y0 = (int(v // 256) for v in geo.ll2px(17, top, lon - min(dlon, 180)))
+    x1, y1 = (int(v // 256) for v in geo.ll2px(17, bottom, lon + min(dlon, 180)))
+    n = 2 ** 17
+    xs = sorted({x % n for x in range(x0, x1 + 1)})
+    return [(x, y) for x in xs for y in range(max(y0, 0), min(y1, n - 1) + 1)]
+
+
+def panos_around(lat: float, lon: float, min_d: float, max_d: float, per: int, spacing: float,
+                 proxy: str | None, cache: Path) -> list[tuple[str, float, float, float]]:
+    """Up to `per` panoramas between min_d and max_d metres from (lat, lon), nearest first and at least `spacing` m apart.
+    Returns (id, lat, lon, distance). Raises ServiceError when a coverage lookup fails."""
+    cands = []
+    for tx, ty in tiles_around(lat, lon, max_d):
+        for pid, la, lo in tile_panos(tx, ty, proxy, cache):
+            d = geo.distance((lat, lon), (la, lo))
+            if min_d <= d <= max_d:
+                cands.append((d, pid, la, lo))
+    picked: list[tuple[str, float, float, float]] = []
+    for d, pid, la, lo in sorted(cands):
+        if all(geo.distance((la, lo), (p[1], p[2])) >= spacing for p in picked):
+            picked.append((pid, la, lo, d))
+        if len(picked) >= per:
+            break
+    return picked
 
 
 def render(pid: str, heading: float, pitch: float, fov: float, w: int, h: int, proxy: str | None,
@@ -189,14 +297,69 @@ def main() -> None:
     s.add_argument("--limit", type=int, default=12)
     s.add_argument("--out", type=Path, required=True)
 
+    t = sub.add_parser("targets", help="for every target point, the panoramas around it rendered facing it -> .index.json for match.py")
+    common(t)
+    t.add_argument("--points", type=Path, required=True, help="JSON {name:[lat,lon]}, e.g. osm.py find output (every church in a region)")
+    t.add_argument("--per", type=int, default=2, help="panoramas per target")
+    t.add_argument("--min-dist", type=float, default=12, help="skip panoramas closer than this (m): too close shows only a wall")
+    t.add_argument("--max-dist", type=float, default=70, help="m")
+    t.add_argument("--spacing", type=float, default=15, help="minimum distance between the panoramas picked for one target (m)")
+    t.add_argument("--pitch", type=float, default=8)
+    t.add_argument("--fov", type=float, default=90)
+    t.add_argument("--sheet", type=Path, help="also draw the first --limit items as a contact sheet")
+    t.add_argument("--limit", type=int, default=12)
+    t.add_argument("--out", type=Path, required=True, help="writes the .index.json for match.py rank --items")
+
     args = ap.parse_args(_neg_coords(sys.argv[1:]))
     if args.cmd == "near":
         lat, lon = map(float, args.latlon.split(","))
-        res = near(lat, lon, args.radius, args.proxy)
-        print(json.dumps(res, ensure_ascii=False, indent=1) if res else "no usable Google Street View result (increase --radius, check coverage, or run doctor.py --network to check service access)")
+        try:
+            res = near(lat, lon, args.radius, args.proxy)
+        except ServiceError as e:
+            sys.exit(f"Google Street View lookup failed ({e}); run doctor.py --network to check service access")
+        print(json.dumps(res, ensure_ascii=False, indent=1) if res else f"no Google Street View panorama within {args.radius:.0f} m (increase --radius or check coverage)")
     elif args.cmd == "render":
         render(args.id, args.heading, args.pitch, args.fov, args.width, args.height, args.proxy, args.cache).save(args.out)
         print(args.out)
+    elif args.cmd == "targets":
+        pts = json.loads(args.points.read_text(encoding="utf-8"))
+
+        def around(kv):
+            name, (la, lo) = kv
+            try:
+                return name, (la, lo), panos_around(la, lo, args.min_dist, args.max_dist, args.per, args.spacing,
+                                                    args.proxy, args.cache), None
+            except ServiceError as e:
+                return name, (la, lo), [], e
+
+        items, empty, failed = [], [], []
+        with ThreadPoolExecutor(8) as ex:
+            for name, tgt, picked, err in ex.map(around, pts.items()):
+                if err:
+                    failed.append(name)
+                    print(f"{name}: coverage lookup failed ({err})", file=sys.stderr)
+                    continue
+                if not picked:
+                    empty.append(name)
+                for pid, la, lo, d in picked:
+                    hd = geo.bearing((la, lo), tgt)
+                    items.append({"id": pid, "heading": round(hd, 1), "pitch": args.pitch, "fov": args.fov,
+                                  "label": f"{len(items)}: {str(name)[:18]} {d:.0f}m h{hd:.0f}", "point": name,
+                                  "wgs": [la, lo], "target": list(tgt), "dist": round(d), "date": ""})
+        out = args.out if args.out.name.endswith(".index.json") else args.out.with_suffix(".index.json")
+        out.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"{len(pts)} targets -> {len(items)} views ({len(empty)} targets without a panorama "
+              f"within {args.min_dist:.0f}–{args.max_dist:.0f} m, {len(failed)} lookups failed) -> {out}")
+        if len(items) > 400:
+            print("match.py loads all candidate images into memory and caps candidates at 400 by default: "
+                  "split the target points into smaller batches or narrow the area before ranking", file=sys.stderr)
+        if args.sheet and items:
+            sheet(items[:args.limit], args.sheet, args.proxy, args.cache)
+            print(args.sheet)
+        if failed:
+            # failed tiles aren't cached, so running the same command again retries only those
+            sys.exit(f"Google Street View coverage lookup failed for {len(failed)} of {len(pts)} targets; "
+                     "rerun later or run doctor.py --network to check service access")
     else:
         panos: dict[str, dict] = {}
         if args.ids:
@@ -204,7 +367,10 @@ def main() -> None:
         else:
             pts = {"at": list(map(float, args.at.split(",")))} if args.at else json.loads(args.points.read_text(encoding="utf-8"))
             for name, (la, lo) in pts.items():
-                res = near(la, lo, args.radius, args.proxy)
+                try:
+                    res = near(la, lo, args.radius, args.proxy)
+                except ServiceError as e:
+                    sys.exit(f"Google Street View lookup failed ({e}); run doctor.py --network to check service access")
                 if res and args.date:
                     p = pick_date(res, args.date)
                     if not p:
@@ -223,7 +389,11 @@ def main() -> None:
                 heads = [float(x) for x in args.headings.split(",")]
             elif target:
                 if ll is None:
-                    info = near(*target, 5000, args.proxy)  # with only an id there are no coordinates, so estimate from near the target; --points is recommended
+                    try:
+                        info = near(*target, 5000, args.proxy)
+                    except ServiceError:
+                        info = None
+                    # with only an id there are no coordinates, so estimate from near the target; --points is recommended
                     ll = info["wgs"] if info else list(target)
                 heads = [geo.bearing(tuple(ll), target) + args.offset]
             else:

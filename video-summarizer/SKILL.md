@@ -126,30 +126,47 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" "VIDEO_URL" --force  # 强制重�
 
 ### Step 2: 认知阶段（Agent）
 
-0. **体裁判定**：读元数据+字幕首尾，按 summary-prompt「体裁判定」表定主体裁（教程/讲座/测评/访谈/资讯/观点/娱乐，可叠加次体裁块）——它决定逐段详解的章内结构与 TL;DR 收获清单的弹性。**观看目的**（可选）：用户在对话中给出目的（如"我看完想照着搭一个店"）则填入 `{{PURPOSE}}`（三要素：我是谁+场景+拿总结去做什么），未给出则留空、骨架自足。
-1. **读帧**：逐张 Read `evidence/frames/*.jpg`（多P形态在 `evidence/frames/pNN/` 子目录），记录画面事实（界面路径、数据、演示效果——口播没讲的信息），并标记值得嵌入 summary 的帧（记下文件名）。
-2. **按需补帧**（无上限）：弹幕峰值时刻（audience 产物 `danmaku.peaks[].t`——单视频在 audience.json，多P在 `audience_NN.json`）、字幕说"看这个界面"但机械帧未覆盖、信息密集段无视觉佐证时：
+0. **定稿本次总结的 Model 与 Harness（动笔前必做，只做一次）**：先确定两个值——
+   - **agent_model**：当前会话模型名（如 `Kimi-K3`、`glm-4.6`、`claude-sonnet-4.5`），按会话实际所用模型填；
+   - **harness**：当前宿主运行时（与 model **正交**的两个字段）。常见取值：`zcode-desktop`（ZCode 桌面版）/ `zcode-cli`(ZCode 命令行) / `claude-code` / `openclaw`；其他宿主按其自称名带前缀小写形式填。
+
+   判定路径：
+   - 能自判断（宿主/模型标识可从当前会话上下文明确读出）→ 直接采用；
+   - **自判断不了就向用户问一次**——一句"本次总结的模型与 harness 分别是什么？"，用户作答后采用、**不再追问**；用户持续不答才落到 `unknown`（Step 4 verify 会 FAIL 提示补答）。
+
+   约束：两个值**全 run 只记一次**——Step 2 写 summary 顶行的 `{{AGENT_MODEL}}` / `{{HARNESS}}`、Step 3 finish 的 `--agent-model` / `--harness` 必须**同一份**；summary 顶行形态固定为
+   ```
+   > {PLATFORM} · {UPLOADER} · 时长 {DURATION} · [原片]({URL}) · 总结于 {YYYY-MM-DD} · {AGENT_MODEL} · {HARNESS}
+   ```
+   **{AGENT_MODEL} 与 {HARNESS} 为裸值直接拼接**（不加"模型"/"harness"中文字样），两项之间用 ` · ` 分隔；日期为 ISO `YYYY-MM-DD`。
+
+1. **体裁判定**：读元数据+字幕首尾，按 summary-prompt「体裁判定」表定主体裁（教程/讲座/测评/访谈/资讯/观点/娱乐，可叠加次体裁块）——它决定逐段详解的章内结构与 TL;DR 收获清单的弹性。**观看目的**（可选）：用户在对话中给出目的（如"我看完想照着搭一个店"）则填入 `{{PURPOSE}}`（三要素：我是谁+场景+拿总结去做什么），未给出则留空、骨架自足。
+2. **读帧**：逐张 Read `evidence/frames/*.jpg`（多P形态在 `evidence/frames/pNN/` 子目录），记录画面事实（界面路径、数据、演示效果——口播没讲的信息），并标记值得嵌入 summary 的帧（记下文件名）。
+3. **按需补帧**（无上限）：弹幕峰值时刻（audience 产物 `danmaku.peaks[].t`——单视频在 audience.json，多P在 `audience_NN.json`）、字幕说"看这个界面"但机械帧未覆盖、信息密集段无视觉佐证时：
    ```bash
    bash "$SKILL_DIR/scripts/extract_frames.sh" "<video_file>" "<folder>/evidence/frames[/pNN]" --at "65,130.5,208"
    ```
    注意 `video_file`/`audio_file` 已是**项目根相对全路径**（folder 已含其中），直接使用、不要再拼 `<folder>/` 前缀；多P形态补帧输出目录带 `pNN` 子目录。
-3. **本地转写**（`needs_whisper: 1` 时，**单入口命令**——asr 优先、whisper 自动兜底，不要手工选引擎）：
+4. **本地转写**（`needs_whisper: 1` 时，**单入口命令**——asr 优先、whisper 自动兜底，不要手工选引擎）：
    ```bash
    bash "$SKILL_DIR/scripts/transcribe_fallback.sh" "<audio_file>" "<folder>/raw" \
      [--suffix "_NN"] [--terms "<context_terms>"]
    ```
    `--suffix` 多P形态传 `"_01"` 样式后缀；`--terms` 传交接 JSON 的 `context_terms`（机械阶段从标题/简介/tags 规则抽取的临时词表，缺席则不带）。降级链封装在脚本内：**asr**（本地 **Qwen/Qwen3-ASR-1.7B** 转写 + **Qwen/Qwen3-ForcedAligner-0.6B** 词级对齐（asr CLI 默认模型，未显式传 `--model`——实际取值以各归档 `raw/asr_run/manifest.json` 的 `request.options` 为事实源），带词表识别偏置，中文优先）via goodpeanuts/asr CLI → 环境未就绪/失败自动降 **whisper**（faster-whisper small，静音分片并行；HF 限速时其 `--model-path` 改本地模型目录如 ModelScope 下载的 `cache/whisper-models/faster-whisper-small`，须手工跑 `parallel_transcribe.py` 时同规则）。输出统一落 `raw/subtitle_NN.srt` 命名约定（asr 原始产物留 `raw/asr_run[_NN]/` 溯源）。stdout 末行 `engine: asr|whisper` 决定 finish 时 `--subtitle-source` 传 `asr` 还是 `whisper`。
-4. **生成 summary（文件名以交接 JSON `summary_file` 为准：单P `summary.md`，多P `summary_NN.md`）**：按 `$SKILL_DIR/reference/summary-prompt.md` 填充占位符（FRAMES=读帧观察，每条附帧文件名；AUDIENCE=audience 产物消化版——多P形态评论来自课程级 audience.json（注明课程级）、弹幕来自 audience_NN.json；无评论无弹幕时观众反馈项留空；PURPOSE=用户观看目的或空；`{{PLATFORM}}` 对 generic 平台填 host 可读名而非哈希键）。骨架为固定四章节 **TL;DR → 脉络总览 → 逐段详解 → 延伸**（认知渐进：先目的与收获、再结构、再细节、最后附录），观众信号融入对应位置而非独立章节；脉络总览对知识型/流程型内容**按需绘制 mermaid 结构图**（思维导图/流程图/展示图谱，纪律见提示词严格规则 15）。遵守证据法则：正文零证据痕迹；含实质信息的帧按提示词「严格规则 12 · 关键帧插图」以相对链接嵌入对应位置（多P帧路径含 `pNN/` 段）。
-5. **生成 evidence 底稿（单P `evidence/evidence.md`，多P `evidence/evidence_NN.md`）**：按 `$SKILL_DIR/reference/evidence-template.md` 承接全部溯源细节（所有占位符的取值来源：meta / audience 产物 / chapters；赞助段与噪音的剜除记录留痕于底稿第 5 节，summary 正文零痕迹）——与它取证的原始侧账同目录。
+5. **生成 summary（文件名以交接 JSON `summary_file` 为准：单P `summary.md`，多P `summary_NN.md`）**：按 `$SKILL_DIR/reference/summary-prompt.md` 填充占位符（FRAMES=读帧观察，每条附帧文件名；AUDIENCE=audience 产物消化版——多P形态评论来自课程级 audience.json（注明课程级）、弹幕来自 audience_NN.json；无评论无弹幕时观众反馈项留空；PURPOSE=用户观看目的或空；`{{PLATFORM}}` 对 generic 平台填 host 可读名而非哈希键；**`{{AGENT_MODEL}}` / `{{HARNESS}}` 取第 0 步定稿的两个值**——顶行按"裸值拼接"形态写入，不加中文标签）。骨架为固定四章节 **TL;DR → 脉络总览 → 逐段详解 → 延伸**（认知渐进：先目的与收获、再结构、再细节、最后附录），观众信号融入对应位置而非独立章节；脉络总览对知识型/流程型内容**按需绘制 mermaid 结构图**（思维导图/流程图/展示图谱，纪律见提示词严格规则 15）。遵守证据法则：正文零证据痕迹；含实质信息的帧按提示词「严格规则 12 · 关键帧插图」以相对链接嵌入对应位置（多P帧路径含 `pNN/` 段）。**行文风格同时遵守 `$SKILL_DIR/reference/writing-style.md`**（提示词严格规则 16 引入）：强信号 §1–§7 单次命中即改、禁动作 §12–§14 按行为意图校验；evidence/、引文、literal 块、作者个性细节不适用。
+6. **生成 evidence 底稿（单P `evidence/evidence.md`，多P `evidence/evidence_NN.md`）**：按 `$SKILL_DIR/reference/evidence-template.md` 承接全部溯源细节（所有占位符的取值来源：meta / audience 产物 / chapters；赞助段与噪音的剜除记录留痕于底稿第 5 节，summary 正文零痕迹）——与它取证的原始侧账同目录。
 
 ### Step 3: 回写 registry
 
 ```bash
 bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish --folder "<folder>" \
-  [--part <N>] [--subtitle-lang "<lang>"] [--subtitle-source "<manual|auto|asr|whisper>"]
+  [--part <N>] [--subtitle-lang "<lang>"] [--subtitle-source "<manual|auto|asr|whisper>"] \
+  --agent-model "<model>" --harness "<harness>"
 ```
 
-finish 从 `<folder>/raw/meta.json` 自动装配全部字段（杜绝手抄漂移；**多P课程目录必须带 `--part N`** 定位 `raw/meta_NN.json`），校验对应 summary（`summary.md` / `summary_NN.md`）已存在后带文件锁回写，registry 条目含 `part`/`summary_file`；本地转写场景必须按 transcribe_fallback.sh 输出的 engine 传 `--subtitle-source asr`（或 `whisper`），终态会同步回写 meta（meta 是字幕来源的唯一事实源）。
+finish 从 `<folder>/raw/meta.json` 自动装配全部字段（杜绝手抄漂移；**多P课程目录必须带 `--part N`** 定位 `raw/meta_NN.json`），校验对应 summary（`summary.md` / `summary_NN.md`）已存在后带文件锁回写，registry 条目含 `part`/`summary_file`/`agent_model`/`harness`；本地转写场景必须按 transcribe_fallback.sh 输出的 engine 传 `--subtitle-source asr`（或 `whisper`），终态会同步回写 meta（meta 是字幕来源的唯一事实源）。
+
+**`--agent-model` 与 `--harness` 必填**——取 Step 2 第 0 步定稿的两个值，**与 summary 顶行写入的 `{{AGENT_MODEL}}` / `{{HARNESS}}` 同一份**；缺失时 finish 直接 die 拒绝回写，等到补齐才允许登记。多P形态逐P调用时各自带同样的两个值。这两个值会同时写入 `raw/meta.json` 的 `agent_model` / `harness` 字段与 registry 条目，Step 4 verify 会强校验"meta 字段、registry 条目、summary 顶行三者一致"。
 
 **cwd 提醒**：finish 的 `--folder` 是**项目根相对**路径，registry.folder 字段也强绑定该语义。脚本内置 cwd 归一化（cd 不是项目根但 folder 相对项目根存在时自动 cd 过去并空提示），但写文档/复制命令时**养成从项目根发命令的习惯**——在归档目录里 cd 太深时其它相对路径参数（如 `--subtitle-source`）将保持解析正确，但 folder 字段必须始终相对项目根。
 
@@ -161,6 +178,8 @@ bash "$SKILL_DIR/scripts/pipeline_prepare.sh" verify                        # �
 ```
 
 verify 程序化检查交付完整性（双形态）：单P目录查 `summary.md`/`evidence/evidence.md`/`raw/meta.json`；多P课程目录**逐P**查 `summary_NN.md`/`evidence/evidence_NN.md`/`raw/meta_NN.json`（**部分完成合法**——只验已采集的P，并输出"课程 N/M P 已总结"信息行）、registry 已逐P登记、summary 帧插图引用的帧文件真实存在（含 `pNN/` 路径）、行文/mermaid 无非法时间戳、无 `.stale` 残留。**输出 FAIL（exit 1）即未达交付标准**，逐条修复后重跑至 PASS。历史教训：曾发生"写完 summary 直接交付、漏跑 finish"导致 registry 缺条目、查重失效——verify 即为此类流程遗漏的程序化兜底。
+
+**新增检查（model/harness 一致性）**：meta 的 `agent_model`/`harness` 必须是非空字符串；registry 条目同步带同名字段；summary 顶行（首个 `>` 元数据行）必须以 `· 总结于 YYYY-MM-DD · {AGENT_MODEL} · {HARNESS}` 收尾，且两个裸值与 meta 字段**逐字符相等**。任一不满足 → FAIL。历史归档（无这两个字段）会在全仓扫描时 FAIL，属预期提示、不回补。
 
 **cwd 提醒**：`verify --folder` 与 finish 同规则——folder 严格按项目根相对解析，脚本已内置 cwd 归一化兜底（finish 后立即在任意 cwd 跑 verify 也能命中）。缺省 `--folder` 时会扫当前 cwd 的 `archive/*/*/*`，**不在项目根时会扫到 0 个 folder 而 PASS 空转**——缺省全仓扫描时务必从项目根调用（脚本会在找到项目根但 cwd 错位且 cwd 下扫不到 archive 时自动 cd 过去并空提示）。
 

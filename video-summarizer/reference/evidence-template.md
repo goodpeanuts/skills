@@ -16,6 +16,7 @@
 | 链接 | {{URL}} |
 | 作者 | {{UPLOADER}}（id={{UPLOADER_ID}}） |
 | 时长 / 总结时间 | {{DURATION}} / {{TIME}} |
+| 模型 / harness | {{AGENT_MODEL}} / {{HARNESS}} |
 | 字幕来源 | {{SUBTITLE_LANG}}（subtitle_source: manual=人工或CC / auto=自动生成 / whisper=本地转写；以 meta.json 为准） |
 | 登录账号（Cookie 缓存） | {{ACCOUNT}}（meta.json `account`，无登录态时为空） |
 | 抓取方式 | pipeline_prepare.sh 机械阶段 + Agent 认知阶段 |

@@ -10,6 +10,16 @@ SBOX=$(mktemp -d /tmp/vs-unit-XXXX)
 trap 'rm -rf "$SBOX"' EXIT
 pass=0 fail=0
 
+# 本次总结 model/harness 的测试 fixture 值——Step2 第 0 步定稿、Step3 finish 必填；
+# verify 会强校验"summary 顶行裸值、meta 字段、registry 条目三者一致"
+TEST_AM="test-model"
+TEST_AH="test-harness"
+FINISH_AH=(--agent-model "$TEST_AM" --harness "$TEST_AH")
+# 生成一版合规 summary 顶行（verify 的形态 + 一致性检查唯一认可的样子）
+summary_top() {
+  printf '> bilibili · t · 时长 0:10 · [原片](https://example.com/v) · 总结于 2026-10-17 · %s · %s\n' "$TEST_AM" "$TEST_AH"
+}
+
 ok()   { pass=$((pass+1)); echo "  ✓ $1"; }
 bad()  { fail=$((fail+1)); echo "  ✗ $1"; }
 check(){ # check <desc> <expected> <actual>
@@ -302,40 +312,40 @@ check "成功路径交接 subtitle_download_failed=false" "False" "$(python3 -c 
 echo "== 7. finish: meta 装配 + 终态回写 + registry 损坏备份 + 字段补齐 =="
 PROJ="$SBOX/proj"; mkdir -p "$PROJ/archive"
 cp -r "$SBOX/pkg" "$PROJ/archive/demo"
-echo "# summary" > "$PROJ/archive/demo/summary.md"
+{ summary_top; echo "# body"; } > "$PROJ/archive/demo/summary.md"
 cd "$PROJ"
 bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" \
-  --subtitle-lang "zh" --subtitle-source "whisper" > /dev/null
+  --subtitle-lang "zh" --subtitle-source "whisper" "${FINISH_AH[@]}" > /dev/null
 check "registry 条目生成" "yes" "$(python3 -c 'import json;print("yes" if json.load(open("archive/registry.json"))["videos"]["some"]["v1"] else "no")')"
 check "registry 字幕终态=whisper" "whisper" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v1"]["subtitle_source"])')"
 check "registry 含 upload_date" "20260801" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v1"]["upload_date"])')"
 check "registry 含 uploader_id" "uid-1" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v1"]["uploader_id"])')"
 check "registry 含 host" "x.com" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v1"]["host"])')"
 check "meta.json 同步回写 whisper" "whisper" "$(python3 -c 'import json;print(json.load(open("archive/demo/raw/meta.json"))["subtitle"]["source"])')"
-cp -r "$SBOX/pkg2" archive/demo2; echo "# s" > archive/demo2/summary.md
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo2" > /dev/null
+cp -r "$SBOX/pkg2" archive/demo2; { summary_top; echo "# s"; } > archive/demo2/summary.md
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo2" "${FINISH_AH[@]}" > /dev/null
 check "registry 条目含 collection" "PL123|我的合集" "$(python3 -c 'import json;c=json.load(open("archive/registry.json"))["videos"]["some"]["v9"]["collection"];print(c["id"]+"|"+c["title"])')"
 check "registry 无列表条目 collection=None" "None" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v1"]["collection"])')"
 echo "{corrupted" > archive/registry.json
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" > /dev/null 2>&1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" "${FINISH_AH[@]}" > /dev/null 2>&1
 backup=$(ls archive/registry.json.corrupt-* 2>/dev/null | head -1)
 check "损坏 registry 有备份" "yes" "$([[ -n "$backup" ]] && echo yes)"
 check "重建后条目有效"       "yes" "$(python3 -c 'import json;print("yes" if json.load(open("archive/registry.json"))["videos"]["some"]["v1"] else "no")')"
 rm archive/demo/summary.md
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/demo" "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "缺 summary.md 拒写" "1" "$rc"
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --platform x --id y --title t --folder archive/demo >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --platform x --id y --title t --folder archive/demo "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "旧接口参数被拒" "1" "$rc"
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source asr >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source asr "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "finish asr 枚举合法（回写成功）" "0" "$rc"
 check "registry 字幕终态=asr" "asr" "$(python3 -c 'import json;print(json.load(open("archive/registry.json"))["videos"]["some"]["v9"]["subtitle_source"])')"
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source bogus >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder archive/demo2 --subtitle-source bogus "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "finish 非法来源被拒" "1" "$rc"
 
 # 并发 finish: 6 进程各写不同条目，全部落盘不丢（锁内 fsync 的回归测试）
 mkdir -p archive/conc
 for i in 1 2 3 4 5 6; do
-  cp -r archive/demo "archive/conc/v$i"; echo "# s" > "archive/conc/v$i/summary.md"
+  cp -r archive/demo "archive/conc/v$i"; { summary_top; echo "# s"; } > "archive/conc/v$i/summary.md"
   python3 -c '
 import json, sys
 m = json.load(open(sys.argv[1]))
@@ -343,7 +353,7 @@ m["id"] = "conc" + sys.argv[2]; m["title"] = "c" + sys.argv[2]
 json.dump(m, open(sys.argv[1], "w"), ensure_ascii=False)' "archive/conc/v$i/raw/meta.json" "$i"
 done
 for i in 1 2 3 4 5 6; do
-  bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/conc/v$i" >/dev/null 2>&1 &
+  bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/conc/v$i" "${FINISH_AH[@]}" >/dev/null 2>&1 &
 done
 wait
 n=$(python3 -c 'import json;print(len(json.load(open("archive/registry.json"))["videos"]["some"]))')
@@ -535,10 +545,10 @@ VDIR2=$(mktemp -d /tmp/vs-verify2-XXXX)
   cd "$VDIR2" && bash "$PREP" init >/dev/null
   mkdir -p "archive/2026-10/bilibili/BV1xx_t/raw" "archive/2026-10/bilibili/BV1xx_t/evidence/frames"
   printf '{"platform":"bilibili","id":"BV1xx","title":"t","url":"u","duration":10,"subtitle":{"selected":"ai-zh","source":"manual"}}' > "archive/2026-10/bilibili/BV1xx_t/raw/meta.json"
-  printf '# s\n![0:01 画面：测试](evidence/frames/00-00-01.jpg)\n' > "archive/2026-10/bilibili/BV1xx_t/summary.md"
+  { summary_top; printf '# s\n![0:01 画面：测试](evidence/frames/00-00-01.jpg)\n'; } > "archive/2026-10/bilibili/BV1xx_t/summary.md"
   echo "# e" > "archive/2026-10/bilibili/BV1xx_t/evidence/evidence.md"
   printf 'x' > "archive/2026-10/bilibili/BV1xx_t/evidence/frames/00-00-01.jpg"
-  bash "$PREP" finish --folder "archive/2026-10/bilibili/BV1xx_t" >/dev/null
+  bash "$PREP" finish --folder "archive/2026-10/bilibili/BV1xx_t" "${FINISH_AH[@]}" >/dev/null
   out=$(bash "$PREP" verify 2>&1); rc=$?
   [[ $rc -eq 0 && "$out" == PASS* ]] && echo "  ✓ verify PASS: 完整归档+帧图+registry" \
     || { echo "  ✗ verify 误报完整归档: $out"; fail=$((fail+1)); pass=$((pass-1)); }
@@ -549,7 +559,7 @@ VDIR2=$(mktemp -d /tmp/vs-verify2-XXXX)
     || { echo "  ✗ verify 未抓到断链"; fail=$((fail+1)); pass=$((pass-1)); }
   # 场景4: 行文时间戳 → FAIL
   printf 'x' > "archive/2026-10/bilibili/BV1xx_t/evidence/frames/00-00-01.jpg"
-  printf '# s\n正文缀时间戳（0:18–0:25）违规\n' > "archive/2026-10/bilibili/BV1xx_t/summary.md"
+  { summary_top; printf '# s\n正文缀时间戳（0:18–0:25）违规\n'; } > "archive/2026-10/bilibili/BV1xx_t/summary.md"
   out=$(bash "$PREP" verify 2>&1); rc=$?
   [[ $rc -ne 0 && "$out" == *"行文时间戳"* ]] && echo "  ✓ verify FAIL: 行文时间戳被点名" \
     || { echo "  ✗ verify 未抓到行文时间戳"; fail=$((fail+1)); pass=$((pass-1)); }
@@ -656,13 +666,13 @@ echo "== 15. finish --part: 多P registry 条目 + summary 门槛 + 多P目录�
 PROJ_MP="$SBOX/proj_mp"; mkdir -p "$PROJ_MP/archive"
 cp -r "$SBOX/pkgmp" "$PROJ_MP/archive/course"
 cd "$PROJ_MP"
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "多P目录缺 --part 被拒" "1" "$rc"
-bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" --part 1 >/dev/null 2>&1 && rc=0 || rc=1
+bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" --part 1 "${FINISH_AH[@]}" >/dev/null 2>&1 && rc=0 || rc=1
 check "缺 summary_01.md 拒写" "1" "$rc"
-echo "# s1" > "archive/course/summary_01.md"
+{ summary_top; echo "# s1"; } > "archive/course/summary_01.md"
 bash "$SKILL/scripts/pipeline_prepare.sh" finish --folder "archive/course" --part 1 \
-  --subtitle-source whisper >/dev/null
+  --subtitle-source whisper "${FINISH_AH[@]}" >/dev/null
 check "registry 逐P键登记" "yes" "$(python3 -c 'import json;print("yes" if json.load(open("archive/registry.json"))["videos"]["bilibili"]["BV1mpTESTxx_p1"] else "no")')"
 check "registry 条目 part/summary_file" "1|summary_01.md" \
   "$(python3 -c 'import json;e=json.load(open("archive/registry.json"))["videos"]["bilibili"]["BV1mpTESTxx_p1"];print("%s|%s"%(e["part"],e["summary_file"]))')"
@@ -686,12 +696,12 @@ VDIR_MP=$(mktemp -d /tmp/vs-verifymp-XXXX)
       --has-danmaku 1 --has-comments 1 --frames-max 8 --frames-extracted 8 \
       --part $p --is-multipage 1 --course-page-count 20 >/dev/null
   done
-  printf '# s1\n![0:01 画面：测试](evidence/frames/p01/00-00-01.jpg)\n' > "$F/summary_01.md"
-  printf '# s2\n' > "$F/summary_02.md"
+  { summary_top; printf '# s1\n![0:01 画面：测试](evidence/frames/p01/00-00-01.jpg)\n'; } > "$F/summary_01.md"
+  { summary_top; printf '# s2\n'; } > "$F/summary_02.md"
   echo "# e1" > "$F/evidence/evidence_01.md"; echo "# e2" > "$F/evidence/evidence_02.md"
   printf 'x' > "$F/evidence/frames/p01/00-00-01.jpg"
-  bash "$PREP" finish --folder "$F" --part 1 >/dev/null
-  bash "$PREP" finish --folder "$F" --part 2 >/dev/null
+  bash "$PREP" finish --folder "$F" --part 1 "${FINISH_AH[@]}" >/dev/null
+  bash "$PREP" finish --folder "$F" --part 2 "${FINISH_AH[@]}" >/dev/null
   out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
   if [[ $rc -eq 0 && "$out" == *"PASS"* ]]; then echo "  ✓ verify PASS: 双P完整课程目录"
   else echo "  ✗ verify 误报多P目录: $out"; f=$((f+1)); fi
@@ -701,7 +711,7 @@ VDIR_MP=$(mktemp -d /tmp/vs-verifymp-XXXX)
   out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
   if [[ $rc -ne 0 && "$out" == *"summary_02.md 缺失"* ]]; then echo "  ✓ verify FAIL: 逐P summary 缺失被点名"
   else echo "  ✗ verify 未抓到 summary_02.md 缺失: $out"; f=$((f+1)); fi
-  printf '# s2\n' > "$F/summary_02.md"; rm "$F/evidence/frames/p01/00-00-01.jpg"
+  { summary_top; printf '# s2\n'; } > "$F/summary_02.md"; rm "$F/evidence/frames/p01/00-00-01.jpg"
   out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
   if [[ $rc -ne 0 && "$out" == *"frames/p01/00-00-01.jpg"* ]]; then echo "  ✓ verify FAIL: 多P帧断链（pNN 路径）被点名"
   else echo "  ✗ verify 未抓到 pNN 断链: $out"; f=$((f+1)); fi
@@ -739,9 +749,9 @@ EOF
     --subtitle-lang none --subtitle-source none --needs-whisper 1 \
     --subtitle-error "模拟: HTTP Error 412" \
     --has-danmaku 0 --has-comments 0 --frames-max 8 --frames-extracted 0 >/dev/null
-  printf '# s\n' > "$F/summary.md"
+  { summary_top; printf '# s\n'; } > "$F/summary.md"
   echo "# e" > "$F/evidence/evidence.md"
-  bash "$PREP" finish --folder "$F" >/dev/null
+  bash "$PREP" finish --folder "$F" "${FINISH_AH[@]}" >/dev/null
   out=$(bash "$PREP" verify --folder "$F" 2>&1); rc=$?
   if [[ $rc -eq 0 && "$out" == *"字幕候选"*"selected=none"* ]]; then echo "  ✓ verify 警告: 候选可命中偏好但 selected=none 被提示"
   else echo "  ✗ verify 未提示字幕候选矛盾: $out"; f=$((f+1)); fi

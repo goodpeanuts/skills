@@ -176,7 +176,7 @@ fi
 # ---------- finish: 回写 registry（字段从 meta 自动装配，带文件锁） ----------
 if [[ "$cmd" == "finish" ]]; then
   shift
-  folder="" slang="" ssrc="" part=""
+  folder="" slang="" ssrc="" part="" agent_model="" harness=""
   while [[ $# -gt 0 ]]; do
     [[ $# -ge 2 ]] || die "finish: 参数 $1 缺少取值"
     case $1 in
@@ -184,11 +184,15 @@ if [[ "$cmd" == "finish" ]]; then
       --subtitle-lang) slang=$2 ;;
       --subtitle-source) ssrc=$2 ;;
       --part) part=$2 ;;
-      *) die "finish: 未知参数 $1（接口: finish --folder F [--part N] [--subtitle-lang L] [--subtitle-source S]）" ;;
+      --agent-model) agent_model=$2 ;;
+      --harness) harness=$2 ;;
+      *) die "finish: 未知参数 $1（接口: finish --folder F [--part N] [--subtitle-lang L] [--subtitle-source S] --agent-model M --harness H）" ;;
     esac
     shift 2
   done
   [[ -n "$folder" ]] || die "finish 需要 --folder <归档目录>"
+  [[ -n "$agent_model" ]] || die "finish: 需要 --agent-model <model>（Step 2 第 0 步定稿值，将与 summary 顶行一并强校验）"
+  [[ -n "$harness" ]] || die "finish: 需要 --harness <harness>（Step 2 第 0 步定稿值，将与 summary 顶行一并强校验）"
   case "$ssrc" in ""|manual|auto|asr|whisper|none) ;; *) die "finish: --subtitle-source 仅支持 manual|auto|asr|whisper|none（实得: ${ssrc}）" ;; esac
   folder=${folder%/}
   # cwd 归一化: folder 以项目根相对解析——Agent 在归档目录下跑 finish 时
@@ -210,20 +214,20 @@ m = json.load(open(sys.argv[1]))
 print(("summary_%02d.md" % m["part"]) if m.get("is_multipage") and m.get("part") else "summary.md")' "$folder/$meta_rel")
   [[ -f "$folder/$sum_rel" ]] || die "finish 拒绝回写: $folder/$sum_rel 不存在（先完成认知阶段产出）"
 
-  # 字幕终态覆盖（whisper 兜底后），同步回写 meta 保持 meta/registry 一致
-  if [[ -n "$slang" || -n "$ssrc" ]]; then
-    python3 - "$folder/$meta_rel" "$slang" "$ssrc" <<'PY'
+  # 单点写入 meta：字幕终态（可选）+ agent_model/harness（必填，来自 step2 第 0 步定稿）
+  python3 - "$folder/$meta_rel" "$slang" "$ssrc" "$agent_model" "$harness" <<'PY'
 import json, sys
 from pathlib import Path
-p, slang, ssrc = sys.argv[1:4]
+p, slang, ssrc, agent_model, harness = sys.argv[1:6]
 m = json.loads(Path(p).read_text())
 if slang:
     m["subtitle"]["selected"] = slang
 if ssrc:
     m["subtitle"]["source"] = ssrc
+m["agent_model"] = agent_model
+m["harness"] = harness
 Path(p).write_text(json.dumps(m, ensure_ascii=False, indent=2) + "\n")
 PY
-  fi
 
   mkdir -p archive
   python3 - "$REGISTRY" "$folder" "$folder/$meta_rel" <<'PY'
@@ -253,6 +257,8 @@ entry = {
     "summary_file": (f"summary_{part:02d}.md" if is_mp else "summary.md"),
     "subtitle_lang": m["subtitle"]["selected"],
     "subtitle_source": m["subtitle"]["source"],
+    "agent_model": m.get("agent_model"),
+    "harness": m.get("harness"),
     "summarized_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
 }
 reg_path = Path(reg_path)
@@ -379,8 +385,55 @@ for folder in folders:
                          .get(m.get("id")))
                 if not entry:
                     p(folder, f"registry 未登记 {m.get('platform')}/{m.get('id')}（漏跑 finish）")
-                elif entry.get("folder") != folder:
-                    p(folder, f"registry 登记目录不一致（registry: {entry.get('folder')}）")
+                else:
+                    if entry.get("folder") != folder:
+                        p(folder, f"registry 登记目录不一致（registry: {entry.get('folder')}）")
+                    if not (isinstance(entry.get("agent_model"), str) and entry["agent_model"].strip()):
+                        p(folder, f"registry 条目缺 agent_model（漏带 finish --agent-model 或历史归档未回补）")
+                    if not (isinstance(entry.get("harness"), str) and entry["harness"].strip()):
+                        p(folder, f"registry 条目缺 harness（漏带 finish --harness 或历史归档未回补）")
+        # 3b. meta agent_model/harness 存在性（finish 必填参数回写处；老归档没这两个字段 → FAIL）
+        m_meta = None
+        try:
+            m_meta = json.loads(meta_path.read_text())
+        except Exception:
+            pass  # 损坏已在第 3 步报过
+        if m_meta:
+            am = m_meta.get("agent_model")
+            hn = m_meta.get("harness")
+            if not (isinstance(am, str) and am.strip()):
+                p(folder, f"{meta_path.relative_to(f)} 缺 agent_model 字段（finish 未带 --agent-model 或字段被删）")
+            if not (isinstance(hn, str) and hn.strip()):
+                p(folder, f"{meta_path.relative_to(f)} 缺 harness 字段（finish 未带 --harness 或字段被删）")
+        # 3c. summary 顶行 model/harness 与 meta 一致性 —— 顶行形态固定：
+        #     "> {PLATFORM} · {UPLOADER} · 时长 {DURATION} · [原片]({URL}) · 总结于 YYYY-MM-DD · {AGENT_MODEL} · {HARNESS}"
+        sum_top_re = re.compile(r"^> .+ · 总结于 (\d{4})-(\d{2})-(\d{2}) · ([^·]+?) · ([^·]+?)\s*$")
+        sm_path = f / sum_name
+        if m_meta and sm_path.is_file():
+            top_line = None
+            for line in sm_path.read_text().splitlines():
+                if line.lstrip().startswith(">"):
+                    top_line = line.rstrip()
+                    break
+            if top_line is None:
+                p(folder, f"{sum_name} 缺元数据行（首行应以 > 开头的引言行）")
+            else:
+                mm = sum_top_re.match(top_line)
+                if not mm:
+                    p(folder,
+                      f"{sum_name} 顶行不符合 '… · 总结于 YYYY-MM-DD · {{AGENT_MODEL}} · {{HARNESS}}' 形态"
+                      f"（实得: {top_line[:80]}…）")
+                else:
+                    sm_model = mm.group(4).strip()
+                    sm_harness = mm.group(5).strip()
+                    meta_model = (m_meta.get("agent_model") or "").strip() if isinstance(m_meta.get("agent_model"), str) else ""
+                    meta_harness = (m_meta.get("harness") or "").strip() if isinstance(m_meta.get("harness"), str) else ""
+                    if meta_model and sm_model != meta_model:
+                        p(folder,
+                          f"{sum_name} 顶行 AGENT_MODEL '{sm_model}' 与 meta.agent_model '{meta_model}' 不一致")
+                    if meta_harness and sm_harness != meta_harness:
+                        p(folder,
+                          f"{sum_name} 顶行 HARNESS '{sm_harness}' 与 meta.harness '{meta_harness}' 不一致")
         # 4/5/6. summary 帧插图、行文时间戳、mermaid 纪律（逐 summary 文件检查）
         sm = f / sum_name
         if sm.is_file():

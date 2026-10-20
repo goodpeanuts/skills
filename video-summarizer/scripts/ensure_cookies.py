@@ -1,275 +1,270 @@
 #!/usr/bin/env python3
-"""ensure_cookies.py —— 平台 Cookie 管理（video-summarizer · 能力组件）
+"""Workspace Cookie store. JSON is authoritative; Netscape files are derived only.
 
-消费优先级（手动兜底真正生效的关键顺序）:
-  1. cache/_<platform>.cookies.txt 已存在（含用户手动放置）→ 解析+登录校验
-     通过即采用并回写 cookies.json 命名空间；无效则告警后继续尝试下一来源，
-     绝不覆盖或删除用户文件
-  2. cache/cookies.json 平台命名空间有效 → 派生 netscape 文件
-  3. 浏览器导出 → 先写临时文件，解析+校验全部通过后才 os.replace 落位正式
-     文件（失败不碰既有文件）
-
-单一事实源: cache/cookies.json（平台命名空间，新增平台加顶层键）。
-平台参数（域名列表/关键 Cookie/登录校验/Referer/浏览器/失败策略）全部来自
-platforms.json；verify_type 目前支持 bilibili_nav，新校验类型需在 check_login
-补充实现。on_failure 策略由调用方（pipeline_prepare.sh）实施。
-
-子命令:
-  ensure --platform <P> --url <URL> [--cache-dir <DIR>]   确保登录态（默认 cache/；
-      --cache-dir 指向临时目录时全部派生物落在该目录，项目内零写入——quick 模式用）
-  status --platform <P> [--cache-dir <DIR>]               查看状态（不写任何文件）
-
-未配置平台默认免 Cookie；任何平台手动放置 Netscape 格式的
-cache/_<platform>.cookies.txt（generic 平台还可用 cache/_<host>.cookies.txt）
-即被 pipeline 采用。
+ensure/status --project-root ROOT --platform P [ensure: --url URL --snapshot FILE]
+Only missing, malformed or explicitly expired JSON credentials trigger browser export.
+Network failures preserve the store. All writers share one workspace lock and budget.
 """
-
-from __future__ import annotations  # PEP 604 联合类型注解兼容 Python 3.8/3.9
+from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import fcntl
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.request
-from datetime import datetime, timezone
-from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent / "platforms.json"
-CACHE_DIR = Path("cache")
-
-MANUAL_HINT = ("手动方案: 浏览器插件导出 Netscape cookie 文件，放入 cache/_{platform}.cookies.txt"
-               "（generic 平台也可用 cache/_<host>.cookies.txt）后重试——ensure 会自动校验采用，"
-               "无需手写 cookies.json")
 
 
 class CookieError(Exception):
-    pass
+    def __init__(self, message, code="cookie_error"):
+        super().__init__(message)
+        self.code = code
 
 
-def load_platform_cfg(platform: str) -> dict:
-    """从 platforms.json 读平台 cookie 配置。"""
-    if not CONFIG_PATH.exists():
-        raise CookieError(f"platforms.json 缺失: {CONFIG_PATH}")
+def load_platform_cfg(platform):
     cfg = json.loads(CONFIG_PATH.read_text()).get(platform) or {}
     cookie = cfg.get("cookie") or {}
-    if not cookie.get("domains"):
-        raise CookieError(f"平台 {platform} 未配置自动 Cookie（缺 cookie.domains）；"
-                          f"如需登录态请手动放置 cache/_{platform}.cookies.txt（Netscape 格式）")
+    if not cookie.get("ensure") or not cookie.get("domains"):
+        raise CookieError("该平台未配置自动 Cookie 获取", "not_configured")
     return cookie
 
 
-def out(payload: dict):
-    print(json.dumps(payload, ensure_ascii=False))
+def ua():
+    return json.loads(CONFIG_PATH.read_text()).get("_meta", {}).get("ua") or "Mozilla/5.0"
 
 
-def ua() -> str:
-    return json.loads(CONFIG_PATH.read_text()).get("_meta", {}).get("ua") or ""
-
-
-def cookie_json() -> Path:
-    return CACHE_DIR / "cookies.json"
-
-
-def netscape_path(platform: str) -> Path:
-    return CACHE_DIR / f"_{platform}.cookies.txt"
-
-
-def export_tmp_path(platform: str) -> Path:
-    return CACHE_DIR / f"_{platform}.export.tmp"
-
-
-def http_json(url: str, referer: str, cookie_name: str, cookie_value: str) -> dict:
-    headers = {"User-Agent": ua(), "Referer": referer}
-    if cookie_value:
-        headers["Cookie"] = f"{cookie_name}={cookie_value}"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-
-def load_entry(platform: str) -> dict | None:
-    if not cookie_json().exists():
-        return None
-    try:
-        entry = json.loads(cookie_json().read_text()).get(platform, {})
-        key = load_platform_cfg(platform)["login_cookie"]
-        return entry if entry.get("cookies", {}).get(key) else None
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def write_netscape(platform: str, entry: dict):
+def check_login(platform, cookie_value, timeout=15):
+    """Account for valid credentials; None only for a definite logged-out response."""
     cfg = load_platform_cfg(platform)
-    path = netscape_path(platform)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"# Netscape HTTP Cookie File (derived from cache/cookies.json:{platform})"]
-    for k, v in entry["cookies"].items():
-        for d in cfg["domains"]:  # 多域平台每个归属域一行
-            lines.append(f".{d}\tTRUE\t/\tTRUE\t2147483647\t{k}\t{v}")
-    path.write_text("\n".join(lines) + "\n")
-
-
-def check_login(platform: str, cookie_value: str) -> str | None:
-    """返回登录账号名；未登录/失效返回 None。按 verify_type 分发响应解析。"""
-    cfg = load_platform_cfg(platform)
-    vtype = cfg.get("verify_type")
+    if cfg.get("verify_type") != "bilibili_nav":
+        raise CookieError("未实现该平台的登录校验", "not_configured")
+    req = urllib.request.Request(cfg["verify_url"], headers={
+        "User-Agent": ua(), "Referer": cfg.get("referer") or "",
+        "Cookie": "%s=%s" % (cfg["login_cookie"], cookie_value),
+    })
     try:
-        d = http_json(cfg["verify_url"], cfg.get("referer") or "", cfg["login_cookie"],
-                      cookie_value)
-        if vtype == "bilibili_nav":
-            return d.get("data", {}).get("uname") if d.get("data", {}).get("isLogin") else None
-        raise CookieError(f"平台 {platform} 的 verify_type={vtype!r} 未实现，"
-                          f"请在 ensure_cookies.py check_login 中补充解析逻辑")
-    except CookieError:
-        raise
-    except Exception:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            d = json.loads(resp.read().decode())
+    except Exception as error:
+        raise CookieError("Cookie 登录校验暂不可用，请稍后重试", "network_error") from error
+    if not isinstance(d, dict) or not isinstance(d.get("data") or {}, dict):
+        raise CookieError("Cookie 登录校验返回异常，请稍后重试", "network_error")
+    data = d.get("data") or {}
+    if d.get("code") == -101 or (d.get("code") == 0 and data.get("isLogin") is False):
         return None
+    if d.get("code") == 0 and data.get("isLogin") is True and data.get("uname"):
+        return data["uname"]
+    raise CookieError("Cookie 登录校验返回异常，请稍后重试", "network_error")
 
 
-def parse_netscape_file(platform: str, path: Path) -> dict:
-    """解析 Netscape cookie 文件，按 domains 过滤出关键 Cookie。"""
+def parse_netscape_file(platform, path):
+    """Parse a fresh browser export, never a legacy workspace Netscape file."""
     cfg = load_platform_cfg(platform)
     wanted = set(cfg.get("wanted") or [])
-    entry = {"cookies": {}}
+    cookies = {}
     for line in path.read_text().splitlines():
+        if line.startswith("#HttpOnly_"):
+            line = line[len("#HttpOnly_"):]
         if line.startswith("#") or not line.strip():
             continue
-        f = line.split("\t")
-        # 域精确匹配（dom == d / .d / *.d 后缀），子串匹配会放行 .evilbilibili.com
-        if len(f) >= 7 and any(
-                f[0] == d or f[0] == "." + d or f[0].endswith("." + d)
-                for d in cfg["domains"]) \
-                and (not wanted or f[5] in wanted):
-            entry["cookies"][f[5]] = f[6].strip()
-    login = cfg["login_cookie"]
-    if login not in entry["cookies"]:
-        raise CookieError(f"{path.name} 未包含 {platform} 的 {login}"
-                          f"（浏览器/导出是否登录了该平台？）")
-    return entry
+        fields = line.split("\t")
+        if len(fields) < 7:
+            continue
+        domain, name, value = fields[0], fields[5], fields[6].strip()
+        if any(domain in (d, "." + d) or domain.endswith("." + d) for d in cfg["domains"]):
+            if not wanted or name in wanted:
+                cookies[name] = value
+    if not cookies.get(cfg["login_cookie"]):
+        raise CookieError("Chrome 中没有可用的站点登录态，请先登录后重试", "login_unavailable")
+    return {"cookies": cookies}
 
 
-def store_entry(platform: str, entry: dict, source: str) -> dict:
-    """登录校验通过后并入 cookies.json（保留其他平台命名空间），返回补全的条目。"""
-    account = check_login(platform, entry["cookies"][load_platform_cfg(platform)["login_cookie"]])
-    if not account:
-        raise CookieError(f"{load_platform_cfg(platform)['login_cookie']} 登录校验失败（未登录或已失效）")
-    entry.update(account=account, source=source,
-                 exported_at=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"))
-    cj = cookie_json()
-    old = {}
-    if cj.exists():
-        try:
-            old = json.loads(cj.read_text())
-        except json.JSONDecodeError:
-            print(f"警告: {cj} 损坏，重建（其他平台命名空间将丢失）", file=sys.stderr)
-    old.setdefault("_meta", {"version": 1, "note": "平台命名空间隔离，新增平台加顶层键"})
-    old[platform] = entry
-    cj.parent.mkdir(parents=True, exist_ok=True)
-    cj.write_text(json.dumps(old, ensure_ascii=False, indent=2) + "\n")
-    return entry
+def atomic_write(path, text, mode=0o600):
+    """Replace a complete file in its own directory; never expose a partial JSON."""
+    fd, name = tempfile.mkstemp(prefix=".cookies-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
-def _preserve_rejected(final: Path):
-    """覆写既有 cookie 文件前把被拒原件改名保留（兑现"绝不静默覆盖用户文件"）。"""
-    if final.exists():
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        os.replace(final, final.with_name(f"{final.name}.rejected-{ts}"))
-
-
-def cmd_ensure(platform: str, url: str):
-    if not (json.loads(CONFIG_PATH.read_text()).get(platform) or {}).get("cookie", {}).get("ensure"):
-        raise CookieError(f"平台 {platform} 未配置自动 Cookie 导出；如需登录态请手动放置 "
-                          f"cache/_{platform}.cookies.txt（Netscape 格式）")
+def netscape_text(platform, entry):
     cfg = load_platform_cfg(platform)
+    lines = ["# Netscape HTTP Cookie File (derived from workspace cookies.json)"]
+    for name, value in entry["cookies"].items():
+        if any(c in str(name) + str(value) for c in "\r\n\t"):
+            raise CookieError("Cookie 数据格式异常", "cache_invalid")
+        for domain in cfg["domains"]:
+            lines.append(".%s\tTRUE\t/\tTRUE\t2147483647\t%s\t%s" % (domain, name, value))
+    return "\n".join(lines) + "\n"
 
-    # 1) 既有文件（含手动放置）优先：有效即采用，**原样使用不回写**
-    #    （write_netscape 只写 wanted 子集，回写会裁掉用户文件里的非关键 cookie）
-    final = netscape_path(platform)
-    if final.exists():
+
+class CookieStore:
+    def __init__(self, project_root, timeout=90):
+        self.root = Path(project_root).expanduser().resolve()
+        if not self.root.is_dir():
+            raise CookieError("Cookie 工作区目录不存在", "workspace_error")
+        self.cache = self.root / "cache"
+        if self.cache.is_symlink():
+            raise CookieError("工作区 cache 必须是本地目录", "workspace_error")
+        self.json_path = self.cache / "cookies.json"
+        self.deadline = time.monotonic() + timeout
+
+    def remaining(self, cap=None):
+        value = self.deadline - time.monotonic()
+        if value <= 0:
+            raise CookieError("Cookie 获取或锁等待超时，请稍后重试", "timeout")
+        return min(value, cap) if cap else value
+
+    def run(self, args):
         try:
-            entry = store_entry(platform, parse_netscape_file(platform, final), source="file")
-            out({"ok": True, "account": entry["account"], "source": "file"})
-            return
-        except CookieError as e:
-            print(f"警告: 既有 cookie 文件未通过校验（{e}），尝试其他来源", file=sys.stderr)
+            return subprocess.run(args, cwd=self.root, capture_output=True, text=True,
+                                  timeout=self.remaining())
+        except subprocess.TimeoutExpired as error:
+            raise CookieError("Cookie 获取超时，请稍后重试", "timeout") from error
 
-    # 2) cookies.json 命名空间（覆写既有文件前先保留被拒原件为 .rejected）
-    entry = load_entry(platform)
-    if entry:
-        account = check_login(platform, entry["cookies"][cfg["login_cookie"]])
-        if account:
-            _preserve_rejected(final)
-            write_netscape(platform, entry)
-            out({"ok": True, "account": account, "source": "cache"})
-            return
+    @contextmanager
+    def locked(self):
+        self.cache.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(self.cache / ".cookies.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(min(0.05, self.remaining()))
+            self.remaining()
+            yield
+        finally:
+            os.close(fd)
 
-    # 3) 浏览器导出 → 临时文件，解析+校验通过才落位（失败绝不碰既有文件）
-    if not shutil.which("yt-dlp"):
-        raise CookieError("yt-dlp 不在 PATH（先运行 install_deps.sh 或 uv tool install yt-dlp）")
-    browser = cfg.get("browser") or "chrome"
-    tmp = export_tmp_path(platform)
-    tmp.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(
-        ["yt-dlp", "--cookies-from-browser", browser, "--cookies", str(tmp),
-         "--skip-download", url], capture_output=True, text=True)
-    if r.returncode != 0:
-        if not tmp.exists():
-            raise CookieError(f"从 {browser} 导出 Cookie 失败: {r.stderr.strip()[-200:]}")
-        # yt-dlp 对某些 URL 提取失败但 cookie 导出已落盘（如站点首页
-        # Unsupported URL）——临时文件有效即继续解析
-        print(f"警告: yt-dlp 访问 {url} 失败，但 cookie 导出文件已生成，尝试解析", file=sys.stderr)
-    try:
-        entry = store_entry(platform, parse_netscape_file(platform, tmp), source=browser)
-    except CookieError:
-        tmp.unlink(missing_ok=True)
-        raise
-    _preserve_rejected(final)
-    os.replace(tmp, final)
-    write_netscape(platform, entry)
-    out({"ok": True, "account": entry["account"], "source": browser})
+    def protect_git(self):
+        if shutil.which("git"):
+            repository = self.run(["git", "rev-parse", "--show-toplevel"])
+            if repository.returncode == 0:
+                tracked = self.run(["git", "ls-files", "-z", "--", "cache/*cookies*", "cache/.cookies.lock"])
+                if tracked.returncode or tracked.stdout:
+                    raise CookieError("工作区 Cookie 文件已被 Git 跟踪，请先移除跟踪后重试", "cache_tracked")
+        ignore = self.root / ".gitignore"
+        text = ignore.read_text() if ignore.exists() else ""
+        probes = ("cache/cookies.json", "cache/_bilibili.cookies.txt", "cache/.cookies.lock")
+        needs_rule = "/cache/" not in text.splitlines() and "cache/" not in text.splitlines()
+        if shutil.which("git") and repository.returncode == 0:
+            needs_rule = any(self.run(["git", "check-ignore", "-q", name]).returncode for name in probes)
+        if needs_rule:
+            mode = (ignore.stat().st_mode & 0o777) if ignore.exists() else 0o644
+            atomic_write(ignore, text + ("\n" if text and not text.endswith("\n") else "") + "/cache/\n", mode)
+        if shutil.which("git") and repository.returncode == 0:
+            if any(self.run(["git", "check-ignore", "-q", name]).returncode for name in probes):
+                raise CookieError("Git 忽略规则未覆盖 Cookie 缓存，请检查 .gitignore", "cache_not_ignored")
 
+    def read(self):
+        try:
+            d = json.loads(self.json_path.read_text())
+            return d if isinstance(d, dict) else {}
+        except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+            return {}
 
-def cmd_status(platform: str):
-    try:
+    def entry(self, document, platform):
         cfg = load_platform_cfg(platform)
-    except CookieError as e:
-        out({"configured": False, "platform": platform, "note": str(e)})
-        return
-    entry = load_entry(platform)
-    payload = {"configured": True, "platform": platform,
-               "cookie_file": str(netscape_path(platform)),
-               "has_cookie_file": netscape_path(platform).exists()}
-    if entry:
-        account = check_login(platform, entry["cookies"][cfg["login_cookie"]])
-        payload.update(has_cookies=True, account=account or "", valid=bool(account))
-    else:
-        payload.update(has_cookies=False)
-    out(payload)
+        entry = document.get(platform)
+        if not isinstance(entry, dict) or not isinstance(entry.get("cookies"), dict):
+            return None
+        cookies = entry["cookies"]
+        if not isinstance(cookies.get(cfg["login_cookie"]), str) or not cookies[cfg["login_cookie"]]:
+            return None
+        if any(not isinstance(k, str) or not isinstance(v, str) or any(c in k + v for c in "\r\n\t") for k, v in cookies.items()):
+            return None
+        return entry
+
+    def ensure(self, platform, url, snapshot=None):
+        cfg = load_platform_cfg(platform)
+        destination = Path(snapshot).expanduser().absolute() if snapshot else None
+        if destination and (destination.resolve() == self.cache.resolve() or self.cache.resolve() in destination.resolve().parents):
+            raise CookieError("Cookie 运行副本必须放在缓存目录之外", "snapshot_error")
+        with self.locked():
+            self.protect_git()
+            document = self.read()
+            entry = self.entry(document, platform)
+            account = check_login(platform, entry["cookies"][cfg["login_cookie"]], self.remaining(15)) if entry else None
+            source = "cache"
+            if not account:
+                if not shutil.which("yt-dlp"):
+                    raise CookieError("yt-dlp 不可用，请先安装 skill 依赖", "browser_unavailable")
+                with tempfile.TemporaryDirectory(prefix=".cookie-export-", dir=self.cache) as directory:
+                    exported = Path(directory) / "export.cookies.txt"
+                    self.run(["yt-dlp", "--ignore-config", "--no-playlist", "--cookies-from-browser", cfg.get("browser") or "chrome",
+                              "--cookies", str(exported), "--skip-download", "--socket-timeout", "15", "--retries", "0", url])
+                    if not exported.is_file():
+                        raise CookieError("无法从 Chrome 获取登录态，请确认浏览器已登录", "browser_unavailable")
+                    os.chmod(exported, 0o600)
+                    entry = parse_netscape_file(platform, exported)
+                account = check_login(platform, entry["cookies"][cfg["login_cookie"]], self.remaining(15))
+                if not account:
+                    raise CookieError("Chrome 登录态已失效，请登录后重试", "login_unavailable")
+                source = cfg.get("browser") or "chrome"
+                entry.update(account=account, source=source, exported_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+                document.setdefault("_meta", {"version": 1, "note": "Workspace Cookie credentials; Netscape files are derived only"})
+                document[platform] = entry
+                atomic_write(self.json_path, json.dumps(document, ensure_ascii=False, indent=2) + "\n")
+            else:
+                os.chmod(self.json_path, 0o600)
+            text = netscape_text(platform, entry)
+            atomic_write(self.cache / ("_%s.cookies.txt" % platform), text)
+            if destination:
+                atomic_write(destination, text)
+            self.remaining()
+            return {"ok": True, "state": "valid", "source": source, "account": account}
+
+    def status(self, platform):
+        try:
+            cfg = load_platform_cfg(platform)
+        except CookieError as error:
+            if error.code != "not_configured":
+                raise
+            return {"configured": False, "platform": platform}
+        entry = self.entry(self.read(), platform)
+        if not entry:
+            return {"configured": True, "state": "missing", "valid": False, "has_cookies": False}
+        account = check_login(platform, entry["cookies"][cfg["login_cookie"]], self.remaining(15))
+        return {"configured": True, "state": "valid" if account else "invalid", "has_cookies": True,
+                "valid": bool(account), "account": account or ""}
 
 
 def main():
-    global CACHE_DIR
-    parser = argparse.ArgumentParser(description="平台 Cookie 管理")
-    cmd = parser.add_subparsers(dest="cmd", required=True)
-    p1 = cmd.add_parser("ensure")
-    p1.add_argument("--platform", required=True)
-    p1.add_argument("--url", required=True)
-    p1.add_argument("--cache-dir", default="cache")
-    p2 = cmd.add_parser("status")
-    p2.add_argument("--platform", required=True)
-    p2.add_argument("--cache-dir", default="cache")
+    parser = argparse.ArgumentParser(description="Workspace Cookie 管理（JSON 唯一凭据源）")
+    commands = parser.add_subparsers(dest="cmd", required=True)
+    for name in ("ensure", "status"):
+        command = commands.add_parser(name)
+        command.add_argument("--project-root", required=True)
+        command.add_argument("--platform", required=True)
+        if name == "ensure":
+            command.add_argument("--url", required=True)
+            command.add_argument("--snapshot")
     args = parser.parse_args()
-    CACHE_DIR = Path(args.cache_dir)
     try:
-        if args.cmd == "ensure":
-            cmd_ensure(args.platform, args.url)
-        else:
-            cmd_status(args.platform)
-    except CookieError as e:
-        out({"ok": False, "error": str(e),
-             "hint": MANUAL_HINT.format(platform=args.platform)})
+        store = CookieStore(args.project_root)
+        payload = store.ensure(args.platform, args.url, args.snapshot) if args.cmd == "ensure" else store.status(args.platform)
+        print(json.dumps(payload, ensure_ascii=False))
+    except (CookieError, OSError) as error:
+        message = str(error) if isinstance(error, CookieError) else "Cookie 缓存读写失败，请检查工作区权限"
+        print(json.dumps({"ok": False, "state": "unknown", "code": getattr(error, "code", "cache_write_failed"), "error": message}, ensure_ascii=False))
         sys.exit(1)
 
 

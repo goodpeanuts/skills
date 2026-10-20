@@ -16,7 +16,7 @@
       "verify_url": "https://api.bilibili.com/x/web-interface/nav",
       "verify_type": "bilibili_nav",
       "browser": "chrome",
-      "on_failure": "degrade"
+      "on_failure": "die"
     },
     "danmaku": "bilibili_xml",
     "comments": "bilibili_api",

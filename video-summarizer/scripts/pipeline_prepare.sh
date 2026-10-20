@@ -3,8 +3,7 @@
 #
 # 平台能力位（Cookie 自动导出/弹幕/评论方式）由 scripts/platforms.json 声明，
 # 脚本按表驱动；能力位取值是实现枚举（见 platforms.json _meta.note）。
-# Cookie 消费顺序见 ensure_cookies.py 头注释——手动放置 cache/_<平台键>.cookies.txt
-# （generic 平台也可用 cache/_<host>.cookies.txt）即生效。
+# Cookie 只以工作区 cache/cookies.json 为源；ensure 负责校验、更新和生成运行副本。
 #
 # 机械阶段产出: archive/YYYY-MM/<platform>/<ID_消毒标题>/
 #   raw/{meta.json(追踪), subtitle.srt(追踪), video.*, audio.*}
@@ -19,45 +18,27 @@ BUILD_TERMS="$SKILL_DIR/scripts/build_context_terms.py"
 COOKIES="$SKILL_DIR/scripts/ensure_cookies.py"
 AUDIENCE="$SKILL_DIR/scripts/audience.py"
 FRAMES="$SKILL_DIR/scripts/extract_frames.sh"
+ARCHIVE="$SKILL_DIR/scripts/pipeline_archive.py"
 REGISTRY="archive/registry.json"
+project_root="$PWD"
+cookie_retry_done=0
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 usage() { cat >&2 <<'EOF'
 用法（在项目根目录运行）:
   pipeline_prepare.sh init
-      初始化 archive/ cache/ 与项目 .gitignore（幂等，可重复执行）
-  pipeline_prepare.sh <URL> [--force] [--sub-pref "zh-Hans,zh,en"] [--quality 480|720|1080]
-      采集+归档。已总结视频（registry 按 平台/ID 查重）打印 SKIP 并退出；
-      --force 重采并复用首次归档目录（不产生跨月孤儿目录）；
-      机械阶段已完成但认知阶段中断时重跑 → 从 meta.json 重建交接 JSON 幂等续跑；
-      --sub-pref 覆盖默认字幕语言偏好 [zh-Hans, zh, zh-Hant, 原语言, en]；
-      --quality 下载档位，默认 720（总结只需 1280 宽帧 + 音轨）
-  pipeline_prepare.sh finish --folder <F> [--part N] [--subtitle-lang L] [--subtitle-source S]
-      认知阶段完成后回写 registry。字段从 <F>/raw/meta.json 自动装配（多P课程
-      目录传 --part N 定位 raw/meta_NN.json；要求对应 summary 与 meta 均存在）；
-      whisper 兜底后用 --subtitle-source whisper 覆盖，终态同步回写 meta
-      （meta 是字幕来源的唯一事实源）；asr 转写后用 --subtitle-source asr
-  pipeline_prepare.sh verify [--folder <F>]
-      交付完整性验收（认知阶段收尾必跑，防漏步骤静默出仓）:
-      指定 <F> 只验该归档；缺省全仓扫描 archive/ 下所有归档目录。
-      双形态: 单P目录查 summary.md/meta.json；多P课程目录逐P查 summary_NN.md/
-      meta_NN.json（部分完成合法，只验已采集的P）。检查项: summary/evidence/
-      meta 存在、registry.json 可解析且登记了该目录、summary 帧插图引用的帧
-      文件真实存在、无 .stale 残留、无非法时间戳（行文/mermaid 节点）。
-      全部通过打印 PASS 并 exit 0；有问题逐条列出、末行 FAIL exit 1
-  pipeline_prepare.sh lookup <URL>
-      只读查询（不触发 Cookie ensure、零写入，快速模式用）:
-      已总结打印 HIT <folder>，否则 MISS <平台/ID>
-  pipeline_prepare.sh quick <URL> [--tmp <DIR>]
-      快速模式取材（项目内零写入）：字幕选优与深度模式同规则；已归档则返回
-      registry 命中；无字幕自动 -f bestaudio 备好音频。全部产物（含 cookie
-      派生物）落在 --tmp 目录（缺省 mktemp），stdout 末行输出取材 JSON
+  pipeline_prepare.sh [quick] <URL> [--force] [--resume] [--sub-pref LANGS] [--quality 480|720|1080]
+    quick=文本简报；缺省=标准总结。均归档、刷新动态信息并复用有效稳定素材。
+    --force 仅表示用户已确认覆盖相同模式总结，不删除媒体/字幕或另一种总结。
+    --resume 恢复尚未完成的同模式任务；未完成任务阻止并发覆盖同一分P。
+  pipeline_prepare.sh finish --folder F --mode quick|deep --run-id ID [--part N]
+    --agent-model MODEL --harness HARNESS [--subtitle-lang LANG] [--subtitle-source SOURCE]
+    校验交接指定的临时 summary_output/evidence_output 后发布，更新两种模式记录。
+  pipeline_prepare.sh verify [--folder F] [--mode quick|deep] [--part N]
+  pipeline_prepare.sh abort --folder F --run-id ID [--part N]
+  pipeline_prepare.sh lookup <URL> [--mode quick|deep]
+    lookup 只读；裸多P URL 硬停 exit 2，确认范围后用 ?p=N 逐P处理。
 
-  多P视频约定: 裸多P URL（不含 ?p=）一律硬停 exit 2 并打印分P清单——是否全部
-  处理/处理哪些P由调用方向用户确认后，用 ?p=N 形式 URL 逐P驱动。多P产物落
-  同一课程目录（父BV 命名），逐P文件带零填充后缀（summary_01.md / meta_01.json
-  / video_01.mp4 …，1-based 对齐 pN）；无后缀 = 课程级产物（audience.json 评论
-  一次采集）或单视频产物
 EOF
   exit 1; }
 jget() { python3 -c 'import json,sys
@@ -73,12 +54,12 @@ print("" if v is None else v)' "$1" "$2"; }
 find_project_root() {
   local d="$PWD"
   while [[ "$d" != "/" ]]; do
-    [[ -f "$d/.git/config" ]] && { printf '%s\n' "$d"; return 0; }
+    [[ -e "$d/.git" ]] && { printf '%s\n' "$d"; return 0; }
     d=$(dirname "$d")
   done
   d="$SKILL_DIR"
   while [[ "$d" != "/" ]]; do
-    [[ -f "$d/.git/config" ]] && { printf '%s\n' "$d"; return 0; }
+    [[ -e "$d/.git" ]] && { printf '%s\n' "$d"; return 0; }
     d=$(dirname "$d")
   done
   return 1
@@ -96,8 +77,7 @@ normalize_cwd_for_folder() {
   local root
   root=$(find_project_root) || return 0   # 找不到项目根(未知环境)不动
   [[ "$PWD" == "$root" ]] && return 0     # 已在项目根
-  if [[ -f "$root/$folder/raw/meta.json" || -f "$root/$folder/raw/meta_01.json" ]] \
-     && [[ ! -f "$PWD/$folder/raw/meta.json" && ! -f "$PWD/$folder/raw/meta_01.json" ]]; then
+  if [[ -d "$root/$folder/raw" && ! -d "$PWD/$folder/raw" ]]; then
     echo "(cwd 归一化: 切到项目根 $root; folder 以项目根相对解析)" >&2
     cd "$root" || return 1
   fi
@@ -125,6 +105,7 @@ block = [
     "!archive/**/raw/meta*.json",
     "!archive/**/raw/subtitle*.srt",
     "!archive/**/summary*.md",
+    "!archive/**/brief*.md",
     "!archive/**/evidence/evidence*.md",
     "!archive/**/evidence/audience*.json",
     "# 项目根取材缓存（cookie 会话，绝不入 Git）",
@@ -173,6 +154,34 @@ PY
   exit 0
 fi
 
+# Finish/verify share mode-aware archive metadata and validated publication.
+if [[ "$cmd" == finish || "$cmd" == verify || "$cmd" == abort ]]; then
+  folder_arg=""
+  previous_arg=""
+  for argument in "$@"; do
+    if [[ "$previous_arg" == --folder ]]; then folder_arg=$argument; fi
+    previous_arg=$argument
+  done
+  [[ -z "$folder_arg" ]] || normalize_cwd_for_folder "$folder_arg"
+  if [[ "$cmd" == verify && -z "$folder_arg" && ! -d archive ]]; then
+    root=$(find_project_root || true)
+    if [[ -n "$root" && -d "$root/archive" ]]; then cd "$root"; fi
+  fi
+  modern=0
+  for argument in "$@"; do [[ "$argument" != --mode ]] || modern=1; done
+  if [[ "$cmd" == abort ]]; then modern=1; fi
+  if [[ $modern -eq 0 ]]; then
+    modern=$(python3 - "$folder_arg" <<'PYMODERN'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1]) if sys.argv[1] else Path('archive')
+print(int(any('"schema_version": 2' in p.read_text() for p in root.rglob('meta*.json'))))
+PYMODERN
+)
+  fi
+  if [[ $modern -eq 1 ]]; then exec python3 "$ARCHIVE" "$@"; fi
+  if [[ "${VS_ARCHIVE_LOCKED:-}" != 1 ]]; then exec python3 "$ARCHIVE" legacy "$0" "$@"; fi
+fi
 # ---------- finish: 回写 registry（字段从 meta 自动装配，带文件锁） ----------
 if [[ "$cmd" == "finish" ]]; then
   shift
@@ -497,56 +506,71 @@ PY
   exit 0
 fi
 
+
+# Serialize material writes across processes; the lock lives in ignored cache/.
+if [[ "${VS_PREP_LOCKED:-}" != 1 && "$cmd" != lookup ]]; then
+  exec python3 "$ARCHIVE" run "$0" "$@"
+fi
 # ---------- 公共: Cookie 装配 + 元数据探测 ----------
-# 把 $cookie_file 复制为 $tmpdir 下的工作副本并更新 $cookie_file 指向副本
-cookie_copy() {
-  [[ -z "$cookie_file" ]] && return 0
-  local copy="${tmpdir:-/tmp}/_cookies.working.txt"
-  if cp -f "$cookie_file" "$copy" 2>/dev/null; then
-    cookie_file=$copy
+# 所有配置平台使用同一工作区 JSON；下载器只消费临时副本。
+setup_cookie_for_url() {
+  cookie_file="" account="" cookie_configured=0
+  cookie_args=()
+  local plat ensure_out msg
+  plat=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
+  [[ -n "$plat" ]] || return 0
+  cookie_configured=1
+  if ! ensure_out=$(python3 "$COOKIES" ensure --platform "$plat" --url "$url" \
+       --project-root "$project_root" --snapshot "$tmpdir/_cookies.working.txt"); then
+    msg=$(python3 -c 'import json,sys
+try:
+    print(json.loads(sys.argv[1]).get("error", "Cookie 准备失败"))
+except Exception:
+    print("Cookie 管理器返回异常")' "$ensure_out")
+    die "Cookie 准备失败: $msg"
   fi
+  account=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("account") or "")' "$ensure_out")
+  cookie_file="$tmpdir/_cookies.working.txt"
+  [[ -s "$cookie_file" ]] || die "Cookie 运行副本生成失败"
+  cookie_args=(--cookies "$cookie_file")
   return 0
 }
-# 设置全局: cookie_file / cookie_args / account / cookie_configured
-# $1 可选 cache-dir（缺省 cache=项目内；quick 传 $tmp 保证项目零写入，
-#    且此模式下项目 cache/ 里的既有文件只读复用、不触发写盘的 ensure）
-setup_cookie_for_url() {
-  local cachedir=${1:-cache}
-  cookie_file="" account="" cookie_configured=0
-  local plat ensure_out onfail msg
-  plat=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
-  if [[ -n "$plat" ]]; then
-    cookie_configured=1
-    # quick 等零写入场景: 项目 cache 已有该平台 cookie 文件 → 只读复用
-    if [[ "$cachedir" != "cache" && -f "cache/_${plat}.cookies.txt" ]]; then
-      cookie_file="cache/_${plat}.cookies.txt"
-    elif ! ensure_out=$(python3 "$COOKIES" ensure --platform "$plat" --url "$url" \
-                        --cache-dir "$cachedir"); then
-      msg=$(python3 -c 'import json,sys
-try:
-    d = json.loads(sys.argv[1])
-    print(d.get("error", ""), d.get("hint", ""))
-except Exception:
-    print(sys.argv[1][-300:] if sys.argv[1] else "未知错误")' "$ensure_out" 2>/dev/null || true)
-      onfail=$(python3 "$META" cookie-on-failure "$url" 2>/dev/null || true)
-      if [[ "$onfail" == "degrade" ]]; then
-        echo "警告: Cookie 准备失败，按 platforms.json on_failure=degrade 匿名继续（字幕/评论/弹幕能力位可能缺席）: $msg" >&2
-      else
-        die "Cookie 准备失败: $msg"
-      fi
-    else
-      account=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("account") or "")' "$ensure_out")
-      [[ -f "$cachedir/_${plat}.cookies.txt" ]] && cookie_file="$cachedir/_${plat}.cookies.txt"
-    fi
-  fi
-  cookie_args=()
-  if [[ -n "$cookie_file" && -f "$cookie_file" ]]; then
-    # yt-dlp 退出时会回写 --cookies 目标文件：项目内 cookie 文件（含用户手动
-    # 放置）一律复制工作副本再消费，原文件永不被改动
-    cookie_copy
-    cookie_args=(--cookies "$cookie_file")
-  fi
+
+# 一项最多重试一次；先校验共用缓存，再重探字幕。保留已回填的课程与合集元数据。
+retry_subtitle_probe() {
+  [[ "$cookie_retry_done" == "0" ]] || return 1
+  cookie_retry_done=1
+  setup_cookie_for_url
+  yt-dlp --ignore-config -J --skip-download --no-playlist --write-subs --write-auto-subs \
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$tmpdir/retry.%(ext)s" "$url" \
+    > "$tmpdir/subtitle_retry.info.json" 2> "$tmpdir/subtitle_retry.err" \
+    || die "字幕重新探测失败，请检查网络后重试"
+  python3 "$META" distill "$tmpdir/subtitle_retry.info.json" --out "$tmpdir/subtitle_retry.json" --sub-pref "$sub_pref"
+  python3 - "$tmpdir/distilled.json" "$tmpdir/subtitle_retry.json" <<'PYSUB'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1]); original = json.loads(p.read_text()); fresh = json.loads(Path(sys.argv[2]).read_text())
+for key in ("subtitle", "subs_manual", "subs_auto"):
+    original[key] = fresh.get(key)
+p.write_text(json.dumps(original, ensure_ascii=False))
+PYSUB
+  sel_lang=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["lang"])' "$tmpdir/distilled.json")
+  sel_source=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["source"])' "$tmpdir/distilled.json")
   return 0
+}
+
+# 返回真实 SRT 是否生成；失败原因日志保留在素材目录。
+download_selected_subtitle() {
+  local base=$1 log=$2 kind flag f
+  [[ "$sel_lang" != "none" ]] || return 1
+  kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
+  flag=--write-subs
+  [[ "$kind" == "auto" ]] && flag=--write-auto-subs
+  yt-dlp --ignore-config --no-playlist --skip-download "$flag" --sub-lang "$sel_lang" --convert-subs srt \
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$base" "$url" >"$log" 2>&1 || true
+  f=$(ls "$base".*.srt 2>/dev/null | head -1 || true)
+  [[ -n "$f" ]] && mv -f "$f" "$base.srt"
+  [[ -s "$base.srt" ]]
 }
 
 # 单次 -J 全量元数据 + 蒸馏 + 读回全局变量。
@@ -557,7 +581,7 @@ except Exception:
 #           host/media_kind/canonical_url/extractor_key/safe_dir/sel_lang/sel_source
 probe_and_distill() {
   local info_out=$1
-  yt-dlp -J --skip-download --no-playlist --write-subs --write-auto-subs \
+  yt-dlp --ignore-config -J --skip-download --no-playlist --write-subs --write-auto-subs \
     ${cookie_args[@]+"${cookie_args[@]}"} -o "$tmpdir/probe.%(ext)s" \
     "$url" > "$info_out" 2> "$tmpdir/ytdlp.err" \
     || die "获取元信息失败: $(tail -3 "$tmpdir/ytdlp.err" | tr '\n' ' ')"
@@ -626,522 +650,208 @@ for pg in json.load(open(sys.argv[1])).get("pages") or []:
   exit 2
 }
 
-# ---------- lookup: 只读查重（快速模式/批量前置查询，零写入、不触发 ensure） ----------
-if [[ "$cmd" == "lookup" ]]; then
-  [[ $# -ge 2 ]] || usage
-  url=$2
-  sub_pref=""
+if [[ "$cmd" == lookup ]]; then
+  url=${2:-}; [[ -n "$url" ]] || usage
+  mode=${4:-deep}; sub_pref=""
   tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
+  cookie_args=()
   probe_and_distill "$tmpdir/info.json"
-  hit=$(registry_folder_of "$platform" "$id")
-  if [[ -n "$hit" && -f "$hit/summary.md" ]]; then
-    echo "HIT $hit"
-  else
-    [[ -n "$hit" ]] && echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结处理" >&2
-    echo "MISS $platform/$id"
-  fi
-  exit 0
-fi
-
-# ---------- quick: 快速模式取材（项目内零写入） ----------
-if [[ "$cmd" == "quick" ]]; then
-  [[ $# -ge 2 ]] || usage
-  url=$2; shift 2
-  outdir=""
-  while [[ $# -gt 0 ]]; do
-    [[ $# -ge 2 ]] || die "quick: 参数 $1 缺少取值"
-    case $1 in
-      --tmp) outdir=$2; shift 2 ;;
-      *) die "quick: 未知参数 $1" ;;
-    esac
-  done
-  [[ -n "$outdir" ]] || outdir=$(mktemp -d /tmp/video-summarizer-quick-XXXX)
-  mkdir -p "$outdir"
-  tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT   # 探测草稿区（$outdir 保留给调用方）
-  sub_pref=""
-  setup_cookie_for_url "$outdir"
-  probe_and_distill "$tmpdir/info.json"
-  # 多P硬停与深度模式同规则: 裸多P URL 静默只取 p1 在快速模式是同一个坑
   multipage_lookup_step "$tmpdir/multipage.json"
   multipage_gate "$tmpdir/multipage.json"
-  hit=$(registry_folder_of "$platform" "$id")
-  if [[ -n "$hit" && ! -f "$hit/summary.md" ]]; then
-    echo "警告: registry 条目悬空（$hit 无 summary.md），按未总结取材" >&2
-    hit=""
-  fi
-  subtitle_file="" audio_file="" needs_whisper=0 sel_error=""
-  if [[ -n "$hit" ]]; then
-    # 已归档: 免取材（读既有 summary.md 即可），零下载
-    sel_lang=archived; sel_source=archived
-  elif [[ "$sel_lang" != "none" ]]; then
-    sub_flag=--write-subs
-    sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
-    [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
-    # 快模式项目零写入: 下载日志与 Cookie 刷新产物都落 $outdir；失败重试一次
-    sub_dl_log="$outdir/subtitle_download.err.log"
-    yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-      ${cookie_args[@]+"${cookie_args[@]}"} -o "$outdir/subtitle" "$url" >"$sub_dl_log" 2>&1 || true
-    sub_file=$(ls "$outdir"/subtitle.*.srt 2>/dev/null | head -1 || true)
-    if [[ -n "$sub_file" && "$sub_file" != "$outdir/subtitle.srt" ]]; then
-      mv -f "$sub_file" "$outdir/subtitle.srt"
-    fi
-    if [[ ! -f "$outdir/subtitle.srt" ]]; then
-      echo "警告: 字幕($sel_lang)首次下载失败——$outdir 内刷新 Cookie 后重试（日志: ${sub_dl_log}）" >&2
-      plat_ck=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
-      if [[ -n "$plat_ck" ]] && python3 "$COOKIES" ensure --platform "$plat_ck" --url "$url" \
-           --cache-dir "$outdir" >/dev/null 2>&1 && [[ -f "$outdir/_${plat_ck}.cookies.txt" ]]; then
-        cookie_args=(--cookies "$outdir/_${plat_ck}.cookies.txt")
-      fi
-      yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-        ${cookie_args[@]+"${cookie_args[@]}"} -o "$outdir/subtitle" "$url" >"$sub_dl_log" 2>&1 || true
-      sub_file=$(ls "$outdir"/subtitle.*.srt 2>/dev/null | head -1 || true)
-      if [[ -n "$sub_file" && "$sub_file" != "$outdir/subtitle.srt" ]]; then
-        mv -f "$sub_file" "$outdir/subtitle.srt"
-      fi
-      if [[ ! -f "$outdir/subtitle.srt" ]]; then
-        sel_error=$(tail -n 3 "$sub_dl_log" 2>/dev/null | tr '\n' ' ' | cut -c1-200)
-        echo "警告: 字幕($sel_lang)下载失败（已含 Cookie 刷新重试）——降级音频转写；详情: $sub_dl_log" >&2
-      fi
-    fi
-    [[ -f "$outdir/subtitle.srt" ]] && subtitle_file="$outdir/subtitle.srt"
-  fi
-  if [[ -z "$subtitle_file" && -z "$hit" ]]; then
-    sel_lang=none; sel_source=none; needs_whisper=1
-    yt-dlp --no-playlist -f "bestaudio/best" ${cookie_args[@]+"${cookie_args[@]}"} \
-      -o "$outdir/audio.%(ext)s" "$url" >/dev/null 2>&1 || true
-    audio_file=$(ls "$outdir"/audio.* 2>/dev/null | head -1 || true)
-    [[ -n "$audio_file" ]] || die "快速模式: 字幕与音频均不可得（网络/Cookie 问题，见 stderr）"
-  fi
-  python3 - "$outdir" "$hit" "$subtitle_file" "$audio_file" "$needs_whisper" \
-    "$sel_lang" "$sel_source" "$id" "$platform" "$host" "$title" "$dur" "$sel_error" <<'PY'
-import json, sys
-(outdir, hit, sub, audio, nw, slang, ssrc,
- vid, plat, host, title, dur, serr) = sys.argv[1:14]
-print(json.dumps({
-    "mode": "quick", "tmp": outdir,
-    "registry_hit": hit or "",
-    "id": vid, "platform": plat, "host": host,
-    "title": title, "duration": int(float(dur or 0)),
-    "subtitle_file": sub, "audio_file": audio,
-    "subtitle_lang": slang, "subtitle_source": ssrc,
-    "needs_whisper": int(nw),
-    "subtitle_download_failed": bool(serr),
-}, ensure_ascii=False))
-PY
+  python3 - "$platform" "$id" "$mode" <<'PYLOOK'
+import json,sys
+from pathlib import Path
+platform,vid,mode=sys.argv[1:]
+r=json.loads(Path('archive/registry.json').read_text()) if Path('archive/registry.json').exists() else {}
+e=r.get('videos',{}).get(platform,{}).get(vid,{})
+a=(e.get('summaries') or {}).get(mode) or (e if mode=='deep' and not e.get('summaries') else {})
+f=e.get('folder',''); name=a.get('file') or a.get('summary_file') or 'summary.md'
+print('HIT '+f if f and a and (Path(f)/name).is_file() else 'MISS '+platform+'/'+vid)
+PYLOOK
   exit 0
 fi
-
-# ---------- prepare: 机械阶段 ----------
-url=$1; shift
-force=0 sub_pref="" quality=720
+# Both modes share the same archive and stable material paths.
+mode=deep
+if [[ "$cmd" == "quick" ]]; then mode=quick; shift; fi
+url=${1:-}; [[ -n "$url" ]] || usage; shift
+force=0 resume=0 sub_pref="" quality=720
 while [[ $# -gt 0 ]]; do
-  [[ $# -ge 2 || "$1" == "--force" ]] || die "未知或缺少取值的参数: $1"
   case $1 in
     --force) force=1; shift ;;
-    --sub-pref) sub_pref=$2; shift 2 ;;
-    --quality) quality=$2; shift 2 ;;
+    --resume) resume=1; shift ;;
+    --sub-pref|--quality) [[ $# -ge 2 ]] || die "参数缺少取值: $1"; key=$1; value=$2; shift 2
+      if [[ "$key" == "--sub-pref" ]]; then sub_pref=$value; else quality=$value; fi ;;
     *) die "未知参数 $1" ;;
   esac
 done
 case "$quality" in 480|720|1080) ;; *) die "--quality 仅支持 480|720|1080" ;; esac
-
-[[ -d .git || -d archive ]] || die "未在项目根目录（无 .git 与 archive/）。首次使用请先运行: pipeline_prepare.sh init"
-
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
-
+bash "$0" init >&2
+tmpdir=$(mktemp -d); trap 'rm -rf "$tmpdir"' EXIT
 setup_cookie_for_url
 probe_and_distill "$tmpdir/info.json"
-
-# 手动 Cookie 兜底（仅未配置平台——配置平台已由 ensure 按消费顺序处理）:
-# 平台键或 host 命名的文件存在即采用，并带登录态重探一次元数据
-if [[ -z "$cookie_file" && "$cookie_configured" != "1" ]]; then
-  for cand in "cache/_${platform}.cookies.txt" "cache/_${host}.cookies.txt"; do
-    if [[ -f "$cand" ]]; then
-      cookie_file=$cand
-      echo "使用手动 Cookie: ${cookie_file}（带登录态重新探测元数据）" >&2
-      cookie_copy
-      cookie_args=(--cookies "$cookie_file")
-      probe_and_distill "$tmpdir/info2.json"
-      break
-    fi
-  done
-fi
-
-# 多P探测 + collection 三级回填（bare 多P URL 在此硬停 exit 2，先于 SKIP——
-# 即使第1P已总结也要让调用方看到全课清单再决策）
 multipage_lookup_step "$tmpdir/multipage.json"
 multipage_gate "$tmpdir/multipage.json"
-
-is_multipage=$(jget "$tmpdir/multipage.json" is_multipage)
-part=$(jget "$tmpdir/multipage.json" part)
-page_count=$(jget "$tmpdir/multipage.json" page_count)
-course_safe_dir=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("safe_dir") or "")' "$tmpdir/multipage.json")
-course_id=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("id") or "")' "$tmpdir/multipage.json")
-course_title=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("title") or "")' "$tmpdir/multipage.json")
-# 逐P产物后缀（零填充 1-based 对齐 pN）: summary_01.md / meta_01.json / video_01.mp4 …
-sfx="" part_padded="" frames_sub=""
-if [[ "$is_multipage" == "True" ]]; then
-  if [[ -n "$page_count" && "$page_count" != "0" && "$part" -gt "$page_count" ]] 2>/dev/null; then
-    die "p${part} 不存在（该视频共 ${page_count}P）"
-  fi
-  part_padded=$(printf '%02d' "$part")
-  sfx="_${part_padded}"
-  frames_sub="/p${part_padded}"
-fi
-
-# registry 查重（全平台统一键 平台/ID; --force 重跑且复用首次归档目录）
-reg_folder=$(registry_folder_of "$platform" "$id")
-if [[ -n "$reg_folder" && $force -eq 0 ]]; then
-  if [[ ! -d "$reg_folder" ]]; then
-    # 悬空条目（归档目录被手动删除）：告警后按未总结处理，重采落新目录并自愈
-    echo "警告: registry 记录的归档目录不存在: $reg_folder —— 按未总结重新采集（registry 条目将在 finish 时自愈）" >&2
-  else
-    echo "SKIP: $platform/$id 已总结过 -> $reg_folder (重跑请加 --force)"
-    exit 0
-  fi
-fi
-
-# 归档目录解析顺序:
-#   1) registry 记录的目录仍存在 → 复用（跨月 --force 重采不产生孤儿）
-#   2) 按归档布局探测既有目录（跨月中断续跑: finish 未执行、registry 无指针，
-#      但上月目录还在）→ meta 归属一致即复用，进入下方续跑分支
-#      多P形态: 目录内任一 meta_NN.json 精确归属本P（中断续跑），或字面
-#      课程目录名命中（目录名含父BV，同课程追加新P合法）
-#   3) 都没有 → 按当前年月新建（多P用课程目录名=父BV_主标题；单P用 条目ID_标题）
-# 目录名经消毒（见 pipeline_meta.py sanitize_component）
-pkg=""
-if [[ -n "$reg_folder" && "$reg_folder" == archive/* && -d "$reg_folder" ]]; then
-  pkg="$reg_folder"
-elif [[ "$is_multipage" == "True" ]]; then
-  pkg=$(python3 - "$platform" "$id" "$course_safe_dir" <<'PY'
-import json, sys
+plan_args=(plan --distilled "$tmpdir/distilled.json" --multipage "$tmpdir/multipage.json" --mode "$mode")
+[[ $force -eq 0 ]] || plan_args+=(--force)
+[[ $resume -eq 0 ]] || plan_args+=(--resume)
+python3 "$ARCHIVE" "${plan_args[@]}" > "$tmpdir/plan.json"
+# --resume returns the exact existing handoff without refreshing material during generation.
+if [[ -n "$(jget "$tmpdir/plan.json" summary_output)" ]]; then cat "$tmpdir/plan.json"; exit 0; fi
+pkg=$(jget "$tmpdir/plan.json" folder)
+sfx=$(jget "$tmpdir/plan.json" suffix)
+part=$(jget "$tmpdir/plan.json" part)
+frames_sub=$(jget "$tmpdir/plan.json" frames_sub)
+mkdir -p "$pkg/raw" "$pkg/evidence"
+# A nonempty existing stable file is never replaced. SRT additionally needs a valid cue.
+find_stable() {
+  python3 - "$pkg/raw" "$1" <<'PY'
+import sys
 from pathlib import Path
-platform, vid, course_dir = sys.argv[1:4]
-
-def owns(c):
-    if c.name == course_dir:  # 字面课程目录名（含父BV）→ 同课程追加新P
-        return True
-    for mp in (c / "raw").glob("meta_*.json"):  # 逐P meta 精确归属 → 中断续跑
-        try:
-            m = json.loads(mp.read_text())
-        except Exception:
-            continue
-        if m.get("platform") == platform and m.get("id") == vid:
-            return True
-    return False
-
-for c in sorted(Path("archive").glob(f"*/{platform}/*")):
-    if c.is_dir() and owns(c):
-        print(c)
-        break
+for p in sorted(Path(sys.argv[1]).glob(sys.argv[2]+'.*')):
+    if p.is_file() and p.stat().st_size and p.suffix not in ('.part', '.ytdl', '.log', '.json'):
+        print(p); break
 PY
-)
-  [[ -n "$pkg" ]] && echo "发现既有课程目录（同课程追加/跨月续跑）: $pkg" >&2
-  pkg="${pkg:-archive/$(date +%Y-%m)/$platform/$course_safe_dir}"
-else
-  pkg=$(python3 - "$platform" "$id" "$safe_dir" <<'PY'
-import json, sys
-from pathlib import Path
-platform, vid, safe_dir = sys.argv[1:4]
-# 目录名字面量比较（safe_dir 可能含 [] 等 glob 特殊字符，不能直接进 glob 模式）
-cands = sorted(c for c in Path("archive").glob(f"*/{platform}/*") if c.name == safe_dir)
-for c in cands:  # 唯一归属一致的既有目录 → 跨月续跑复用
-    try:
-        m = json.loads((c / "raw" / "meta.json").read_text())
-    except Exception:
-        continue
-    if m.get("platform") == platform and m.get("id") == vid:
-        print(c)
-        break
-PY
-)
-  [[ -n "$pkg" ]] && echo "发现既有归档目录（跨月续跑）: $pkg" >&2
-  pkg="${pkg:-archive/$(date +%Y-%m)/$platform/$safe_dir}"
-fi
-# 本P的 meta 相对路径（多P: raw/meta_NN.json；单P: raw/meta.json）
-meta_rel="raw/meta.json"
-[[ "$is_multipage" == "True" ]] && meta_rel="raw/meta_${part_padded}.json"
-
-if [[ -d "$pkg" ]]; then
-  if [[ $force -eq 0 ]]; then
-    # 中断续跑: 本P机械产物完好且归属一致 → 从 meta 重建交接 JSON 幂等退出
-    if [[ -f "$pkg/$meta_rel" ]]; then
-      match=$(python3 - "$pkg/$meta_rel" "$platform" "$id" <<'PY' || true
-import json, sys
-m = json.load(open(sys.argv[1]))
-print("yes" if m.get("platform") == sys.argv[2] and m.get("id") == sys.argv[3] else "no")
-PY
-)
-      if [[ "$match" == "yes" ]]; then
-        # 注意顺序: 提示行先输出，重建 JSON 最后打印——Python stdout 走管道是
-        # 块缓冲（进程退出才刷出），若 echo 在其后，2>&1 合并捕获时契约行会
-        # 被提示行挤掉末位
-        echo "续跑: 机械阶段产物完好，已从中断处恢复（重采请加 --force）" >&2
-        python3 - "$pkg" "$pkg/$meta_rel" <<'PY'
-import json, sys
-from pathlib import Path
-pkg, meta_path = sys.argv[1:3]
-m = json.loads(Path(meta_path).read_text())
-cap = m.get("capabilities") or {}
-files = m.get("files") or {}
-sub = m.get("subtitle") or {}
-part = m.get("part")
-is_mp = bool(m.get("is_multipage")) and part
-h = {
-    "folder": pkg, "id": m["id"], "platform": m["platform"],
-    "host": m.get("host", ""), "media_kind": m.get("media_kind", "video"),
-    "title": m.get("title"), "url": m.get("url"),
-    "duration": m.get("duration") or 0, "language": m.get("language"),
-    "upload_date": m.get("upload_date"), "uploader": m.get("uploader"),
-    "uploader_id": m.get("uploader_id"),
-    "collection_id": (m.get("collection") or {}).get("id", ""),
-    "collection_title": (m.get("collection") or {}).get("title", ""),
-    "account": m.get("account") or "",
-    "video_file": files.get("video", ""), "audio_file": files.get("audio", ""),
-    "subtitle_lang": sub.get("selected", "none"),
-    "subtitle_source": sub.get("source", "none"),
-    "needs_whisper": int(bool(m.get("needs_whisper"))),
-    # 词表路径与后缀形态对齐（多P context_terms_NN.txt / 单P context_terms.txt）；
-    # 项目根相对全路径（与 video_file/audio_file 契约一致）
-    "context_terms": next(
-        (str(p) for p in [
-            Path(pkg, "raw", f"context_terms_{part:02d}.txt" if is_mp else "context_terms.txt"),
-        ] if p.exists()), ""),
-    "has_danmaku": int(bool(cap.get("danmaku"))),
-    "has_comments": int(bool(cap.get("comments"))),
-    "chapters": m.get("chapters_count", 0),
-    "part": part,
-    "is_multipage": int(is_mp),
-    "summary_file": (f"summary_{part:02d}.md" if is_mp else "summary.md"),
-    "must_run_finish": True,
 }
-print(json.dumps(h, ensure_ascii=False))
-PY
-        exit 0
-      fi
-      die "目录冲突: $pkg/$meta_rel 归属不一致 — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
-    fi
-    # 多P: 课程目录存在但本P meta 缺席 → 同课程追加新P（合法，继续采集）；
-    # 但目录内若已有其他课程的 meta 则拒绝（防无关目录被污染）
-    if [[ "$is_multipage" == "True" ]] && ls "$pkg"/raw/meta*.json >/dev/null 2>&1; then
-      foreign=$(python3 - "$pkg" "$platform" "$course_id" <<'PY'
-import json, sys
+video_file=$(find_stable "video${sfx}"); audio_file=$(find_stable "audio${sfx}")
+video_new=0 audio_new=0 sub_new=0 terms_new=0
+if [[ "$mode" == deep && "$media_kind" != audio && -z "$video_file" ]]; then
+  yt-dlp --ignore-config --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} \
+    -f "bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best" --merge-output-format mp4 \
+    -o "$tmpdir/video.%(ext)s" "$url" > /dev/null 2> "$tmpdir/media.err" || die "视频下载失败"
+  vf=$(ls "$tmpdir"/video.* 2>/dev/null | head -1 || true); [[ -s "$vf" ]] || die "视频下载结果为空"
+  video_file="$pkg/raw/video${sfx}.${vf##*.}"; mv "$vf" "$video_file"; video_new=1
+fi
+subtitle_path="$pkg/raw/subtitle${sfx}.srt"
+valid_sub=$(python3 - "$subtitle_path" <<'PY'
+import re,sys
 from pathlib import Path
-pkg, platform, base = sys.argv[1:4]
-for mp in sorted(Path(pkg, "raw").glob("meta*.json")):
-    try:
-        m = json.loads(mp.read_text())
-    except Exception:
-        continue
-    if m.get("platform") != platform or not str(m.get("id") or "").startswith(str(base)):
-        print(m.get("id") or mp.name)
-        break
+p=Path(sys.argv[1]); print(int(p.is_file() and bool(re.search(r'\d{2}:\d{2}:\d{2}[,.]\d+\s*-->',p.read_text(errors='replace')))))
 PY
 )
-      [[ -n "$foreign" ]] && die "目录冲突: $pkg 内发现非本课程（${course_id}）的 meta（${foreign}）——请人工检查"
-    fi
-    [[ "$is_multipage" != "True" ]] && \
-      die "目录冲突: $pkg 已存在但 registry 未登记 $platform/$id — 若目录内容与该视频无关请人工检查；否则加 --force 重采"
-  elif [[ "$is_multipage" == "True" ]]; then
-    # --force 多P作用域: 仅清理本P产物（旧认知产物改名留痕防陈旧蒙混；
-    # 其他P产物与课程级 audience.json 绝不触碰——对应"--force 吞未提交认知
-    # 产物"历史教训在共享目录下的放大形态，清理名单每一项都带分P过滤）
-    for f in "summary_${part_padded}.md" "evidence/evidence_${part_padded}.md"; do
-      [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
-    done
-    rm -f "$pkg/raw/meta_${part_padded}.json" \
-          "$pkg/raw/video_${part_padded}."* "$pkg/raw/audio_${part_padded}."* \
-          "$pkg/raw/subtitle_${part_padded}.srt" \
-          "$pkg/raw/context_terms_${part_padded}.txt" \
-          "$pkg/evidence/chapters_${part_padded}.json" \
-          "$pkg/evidence/danmaku_${part_padded}.xml" \
-          "$pkg/evidence/audience_${part_padded}.json" \
-          "$pkg/evidence/comments_${part_padded}.info.json"
-    rm -rf "$pkg/evidence/frames/p${part_padded}"
-  else
-    # --force 单P: 旧认知产物改名保留（防 finish 的 summary 门槛被上一轮陈旧
-    # 产物蒙混；.stale 不入 Git 追踪白名单，属可弃残留）。必须在 rm -rf 之前
-    # 执行——evidence/ 整目录会被清理；底稿改名到目录根（evidence.md.stale），
-    # 否则改名产物随目录清理被误删。旧布局遗留的顶层 evidence.md 一并留痕
-    # （与 evidence/evidence.md 同目标名，mv -f 后者覆盖）
-    for f in summary.md evidence.md evidence/evidence.md; do
-      [[ -f "$pkg/$f" ]] && mv -f "$pkg/$f" "$pkg/$(basename "$f").stale"
-    done
-    # 旧布局兼容：evidence.md 曾位于目录根、meta.json 曾位于目录根
-    # （已改名留痕的 .stale 不在清理名单内，存活）
-    rm -rf "$pkg/raw" "$pkg/evidence" "$pkg/meta.json"
-  fi
-fi
-mkdir -p "$pkg/raw" "$pkg/evidence/frames${frames_sub}"
-
-# 合集归属/多P探测已在 probe 后经 multipage_lookup 完成（collection 三级回填
-# 已写进 distilled；续跑分支不经过那一段，meta 为准）
-
-# 媒体下载: audio-only 站点（播客等）直接拉音频，跳过视频与抽帧
-video_file="" audio_file=""
-if [[ "$media_kind" == "audio" ]]; then
-  echo "纯音频源（audio-only）——跳过视频下载与抽帧" >&2
-  yt-dlp --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} -f "bestaudio/best" \
-    -o "$pkg/raw/audio${sfx}.%(ext)s" "$url" >/dev/null 2> "$tmpdir/dl.err" \
-    || die "音频下载失败: $(tail -3 "$tmpdir/dl.err" | tr '\n' ' ')"
-  audio_file=$(ls "$pkg"/raw/audio${sfx}.* 2>/dev/null | head -1 || true)
-  [[ -n "$audio_file" ]] || die "下载完成但未找到音频文件（raw/audio${sfx}.*）"
-else
-  yt-dlp --no-playlist ${cookie_args[@]+"${cookie_args[@]}"} \
-    -f "bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best" \
-    --merge-output-format mp4 -o "$pkg/raw/video${sfx}.%(ext)s" "$url" \
-    >/dev/null 2> "$tmpdir/dl.err" || die "视频下载失败: $(tail -3 "$tmpdir/dl.err" | tr '\n' ' ')"
-  video_file=$(ls "$pkg"/raw/video${sfx}.* 2>/dev/null | head -1 || true)
-  [[ -n "$video_file" ]] || die "下载完成但未找到视频文件（raw/video${sfx}.*）"
-
-  if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$pkg/raw/audio${sfx}.mp3" 2> "$tmpdir/ffaudio.err"; then
-    # 无音轨是合法输入（纯字幕卡/无声演示）：降级继续，不用 whisper、靠字幕+帧总结
-    if ! ffmpeg -y -loglevel error -i "$video_file" -vn -c:a aac -b:a 128k "$pkg/raw/audio${sfx}.m4a" 2>> "$tmpdir/ffaudio.err"; then
-      echo "警告: 音频抽取失败（视频无音轨，或 ffmpeg 未安装）——跳过音频，whisper 转写不可用" >&2
-    fi
-  fi
-  audio_file=$(ls "$pkg"/raw/audio${sfx}.* 2>/dev/null | head -1 || true)
-fi
-
-# 字幕: 按蒸馏结果下载选中语言（manual/ai 走 write-subs，auto 走 write-auto-subs；
-# B 站字幕需登录态，必须带 cookie）。失败不静默: stderr 落盘留痕 + 刷新 Cookie
-# 重试一次，仍失败才降级本地转写（降级原因随 meta.subtitle.error / 交接 JSON 透出）
-sub_dl_log="$pkg/raw/subtitle_download${sfx}.err.log"
 sel_error=""
-sub_dl_once() {
-  yt-dlp --no-playlist --skip-download $sub_flag --sub-lang "$sel_lang" --convert-subs srt \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/raw/subtitle${sfx}" "$url" >"$sub_dl_log" 2>&1 || true
-  local f
-  f=$(ls "$pkg"/raw/subtitle${sfx}.*.srt 2>/dev/null | head -1 || true)
-  [[ -n "$f" && "$f" != "$pkg/raw/subtitle${sfx}.srt" ]] && mv -f "$f" "$pkg/raw/subtitle${sfx}.srt"
-  [[ -f "$pkg/raw/subtitle${sfx}.srt" ]]
-}
-if [[ "$sel_lang" != "none" ]]; then
-  sub_flag=--write-subs
-  sel_kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["subtitle"]["kind"] or "")' "$tmpdir/distilled.json")
-  [[ "$sel_kind" == "auto" ]] && sub_flag=--write-auto-subs
-  if ! sub_dl_once; then
-    echo "警告: 字幕($sel_lang)首次下载失败——刷新 Cookie 后重试一次（日志: ${sub_dl_log}）" >&2
-    plat_ck=$(python3 "$META" cookie-platform "$url" 2>/dev/null || true)
-    if [[ -n "$plat_ck" ]] && python3 "$COOKIES" ensure --platform "$plat_ck" --url "$url" \
-         --cache-dir cache >/dev/null 2>&1 && [[ -f "cache/_${plat_ck}.cookies.txt" ]]; then
-      cookie_file="cache/_${plat_ck}.cookies.txt"
-      cookie_copy
-      cookie_args=()
-      [[ -n "$cookie_file" && -f "$cookie_file" ]] && cookie_args=(--cookies "$cookie_file")
-    fi
-    if ! sub_dl_once; then
-      sel_error=$(tail -n 3 "$sub_dl_log" 2>/dev/null | tr '\n' ' ' | cut -c1-200)
-      echo "警告: 字幕($sel_lang)下载失败（已含 Cookie 刷新重试）——降级本地转写；详情: $sub_dl_log" >&2
-    fi
-  fi
-fi
-needs_whisper=0
-context_terms_file=""
-if [[ ! -f "$pkg/raw/subtitle${sfx}.srt" ]]; then
-  sel_lang=none; sel_source=none
-  if [[ -n "$audio_file" ]]; then
-    needs_whisper=1
-    # 临时词表（asr --context 识别偏置）: 从标题/简介/tags/章节规则抽取专有
-    # 名词；失败非致命（词表是增益不是前置），asr 空词表照跑、whisper 本就不用词表。
-    # 路径基准与其他 *_file 契约字段一致: 项目根相对全路径（认知阶段直接消费）
-    context_terms_file="$pkg/raw/context_terms${sfx}.txt"
-    if ! python3 "$BUILD_TERMS" "$tmpdir/distilled.json" \
-         --out "$pkg/raw/context_terms${sfx}.txt" 2>/dev/null; then
-      context_terms_file=""
-      echo "警告: 临时词表生成失败——转写将无词表偏置（继续）" >&2
-    fi
-  else
-    echo "警告: 无字幕且无音轨——无法获得口播文本，认知阶段按「无有效口播」规则处理" >&2
-  fi
-fi
-
-# 章节（全平台通用，取自 -J；含 start_time/end_time/title）
-python3 - "$tmpdir/distilled.json" "$pkg/evidence/chapters${sfx}.json" <<'PY'
-import json, sys
-chapters = json.load(open(sys.argv[1])).get("chapters") or []
-json.dump(chapters, open(sys.argv[2], "w"), ensure_ascii=False, indent=2)
+if [[ "$valid_sub" == 1 ]]; then
+  sel_lang=$(python3 - "$tmpdir/plan.json" <<'PY'
+import json,sys
+print((json.load(open(sys.argv[1]))['previous'].get('subtitle') or {}).get('selected') or 'und')
 PY
-
-# 弹幕能力位（platforms.json 声明 danmaku=bilibili_xml 的平台）
-has_danmaku=0
-danmaku_cap=$(python3 "$META" capability "$platform" danmaku 2>/dev/null || true)
-if [[ "$danmaku_cap" == "bilibili_xml" ]]; then
-  yt-dlp --no-playlist --skip-download --write-subs --sub-lang danmaku \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/danmaku${sfx}" "$url" >/dev/null 2>&1 || true
-  [[ -f "$pkg/evidence/danmaku${sfx}.danmaku.xml" ]] && mv -f "$pkg/evidence/danmaku${sfx}.danmaku.xml" "$pkg/evidence/danmaku${sfx}.xml"
-  [[ -f "$pkg/evidence/danmaku${sfx}.xml" ]] && has_danmaku=1
-fi
-
-# 评论能力位（platforms.json 声明 comments=bilibili_api 走自研 API，其余走
-# yt-dlp --write-comments 原生支持；max_comments 对所有原生评论平台生效，
-# extractor-args 命名空间用真实 extractor 键小写）
-has_comments=0
-comments_cap=$(python3 "$META" capability "$platform" comments 2>/dev/null || true)
-if [[ "$comments_cap" == "bilibili_api" ]]; then
-  dxml=""
-  [[ -f "$pkg/evidence/danmaku${sfx}.xml" ]] && dxml="$pkg/evidence/danmaku${sfx}.xml"
-  # 传 canonical webpage_url（含 BV 号）而非原始 URL——b23.tv 短链不含 BV 号。
-  # 多P形态: 评论是 aid 级（全课程共享），课程级 audience.json（无后缀）一次
-  # 采集、其余P自动复用；逐P只产弹幕消化 audience_NN.json（P2 缺口的设计性修复）
-  aargs=()
-  if [[ "$is_multipage" == "True" ]]; then
-    aargs+=(--part "$part" --base-bvid "$course_id" --course-title "$course_title")
-  fi
-  if python3 "$AUDIENCE" bili --url "$canonical_url" --danmaku-xml "$dxml" \
-       --out-dir "$pkg/evidence" --duration "$dur" ${aargs[@]+"${aargs[@]}"} 1>&2; then
-    :
-  else
-    echo "警告: 观众反馈采集失败（继续，evidence 缺 audience 产物）" >&2
-  fi
-  # 课程级 audience.json 就绪即视为评论能力位产出（多P下先行P已备好同样算数）
-  [[ -f "$pkg/evidence/audience.json" ]] && has_comments=1
+)
+  sel_source=$(python3 - "$tmpdir/plan.json" <<'PY'
+import json,sys
+print((json.load(open(sys.argv[1]))['previous'].get('subtitle') or {}).get('source') or 'manual')
+PY
+)
 else
-  # yt-dlp 语义: max_comments 多值必须逗号四元组（总数,顶层,回复,每线程回复）
-  # 实证（yt-dlp 2026.08.19 options 解析器）: 分号重复键只保留最后一个值 ['10']，
-  # 逗号语法才得到 ['60','15','5','10']
-  ea=(--extractor-args "$(printf '%s' "$extractor_key" | tr '[:upper:]' '[:lower:]'):max_comments=60,15,5,10")
-  yt-dlp --no-playlist --skip-download --write-comments --write-info-json "${ea[@]}" \
-    ${cookie_args[@]+"${cookie_args[@]}"} -o "$pkg/evidence/comments${sfx}" "$url" >/dev/null 2>&1 || true
-  if [[ -f "$pkg/evidence/comments${sfx}.info.json" ]]; then
-    uargs=()
-    [[ -n "$uploader" ]] && uargs+=(--uploader "$uploader")
-    [[ -n "$uploader_id" ]] && uargs+=(--uploader-id "$uploader_id")
-    if python3 "$AUDIENCE" generic --info-json "$pkg/evidence/comments${sfx}.info.json" \
-         --out-dir "$pkg/evidence" --duration "$dur" "${uargs[@]+${uargs[@]}}" 1>&2; then
-      has_comments=1
+  if [[ "$sel_lang" == none ]]; then retry_subtitle_probe; fi
+  if [[ "$sel_lang" != none ]]; then
+    if ! download_selected_subtitle "$tmpdir/subtitle" "$tmpdir/subtitle_download.err.log"; then
+      if [[ "$cookie_retry_done" == 0 ]]; then
+        retry_subtitle_probe
+        download_selected_subtitle "$tmpdir/subtitle" "$tmpdir/subtitle_download.err.log" || sel_error="字幕获取失败（已重试）"
+      else sel_error="字幕获取失败（已重试）"; fi
     fi
+    if [[ -s "$tmpdir/subtitle.srt" ]]; then mv "$tmpdir/subtitle.srt" "$subtitle_path"; sub_new=1; valid_sub=1; fi
+  fi
+  if [[ "$valid_sub" != 1 ]]; then sel_lang=none; sel_source=none; fi
+fi
+needs_whisper=0 context_terms_file=""
+if [[ -z "$audio_file" && ( "$mode" == deep || "$valid_sub" != 1 ) ]]; then
+  if [[ -n "$video_file" && "$mode" == deep ]]; then
+    ffmpeg -y -loglevel error -i "$video_file" -vn -c:a libmp3lame -q:a 4 "$tmpdir/audio.mp3" 2> "$tmpdir/audio.err" || true
+  else
+    yt-dlp --ignore-config --no-playlist -f 'bestaudio/best' ${cookie_args[@]+"${cookie_args[@]}"} \
+      -o "$tmpdir/audio.%(ext)s" "$url" > /dev/null 2> "$tmpdir/audio.err" || true
+  fi
+  af=$(ls "$tmpdir"/audio.mp3 "$tmpdir"/audio.m4a "$tmpdir"/audio.webm "$tmpdir"/audio.mp4 "$tmpdir"/audio.opus "$tmpdir"/audio.ogg 2>/dev/null | head -1 || true)
+  if [[ -s "$af" ]]; then audio_file="$pkg/raw/audio${sfx}.${af##*.}"; mv "$af" "$audio_file"; audio_new=1; fi
+fi
+if [[ "$valid_sub" != 1 && -n "$audio_file" ]]; then
+  needs_whisper=1
+  context_terms_file="$pkg/raw/context_terms${sfx}.txt"
+  if [[ ! -s "$context_terms_file" ]]; then
+    if python3 "$BUILD_TERMS" "$tmpdir/distilled.json" --out "$tmpdir/context_terms.txt" 2>/dev/null; then
+      mv "$tmpdir/context_terms.txt" "$context_terms_file"; terms_new=1
+    else context_terms_file=""; fi
   fi
 fi
-
-# 机械抽帧（自适应上限: 时长/75s，夹在 8..20；无视频（audio-only）跳过；
-# 失败非致命，认知阶段可无帧工作。多P形态帧落 frames/pNN/ 子目录——
-# 帧文件名是 HH-MM-SS 时间戳，20P 共享一个 frames/ 必然互撞）
-frames_max=0 frames_out="" frames_extracted=0
-if [[ -n "$video_file" ]]; then
-  frames_max=$(( dur > 1500 ? 20 : (dur < 600 ? 8 : dur / 75) ))
-  frames_out=$(bash "$FRAMES" "$video_file" "$pkg/evidence/frames${frames_sub}" \
-    --max "$frames_max" --chapters "$pkg/evidence/chapters${sfx}.json") \
-    || echo "警告: 机械抽帧失败（继续，认知阶段将无机械帧可用）" >&2
-  frames_extracted=$(printf '%s\n' "$frames_out" | sed -n 's/^frames: extracted=\([0-9]*\).*/\1/p')
-  frames_extracted=${frames_extracted:-0}
+if [[ "$mode" == quick && "$valid_sub" != 1 && -z "$audio_file" ]]; then
+  die "快速模式: 无有效字幕或音频，不能仅凭简介与评论总结"
 fi
-
-# 认知阶段收尾提醒（stderr 不污染交接 JSON 契约行; 必须在 finalize 之前
-# echo——Python stdout 走管道是块缓冲，提醒行放后面会在 2>&1 合并捕获时
-# 挤掉末位契约行；跳过 finish 会导致 registry 查重失效与 verify FAIL）:
-echo "提醒: 认知阶段产出 summary/evidence 后，必须执行 finish 回写 registry，再执行 verify 验收（本 JSON 的 must_run_finish=true）" >&2
-# meta + 交接 JSON（stdout 唯一一行）
-python3 "$META" finalize "$tmpdir/distilled.json" \
-  --folder "$pkg" \
-  --video-file "${video_file#./}" --audio-file "${audio_file#./}" \
-  --subtitle-lang "$sel_lang" --subtitle-source "$sel_source" \
-  --needs-whisper "$needs_whisper" --context-terms "$context_terms_file" \
-  --has-danmaku "$has_danmaku" \
-  --has-comments "$has_comments" --frames-max "$frames_max" \
-  --frames-extracted "$frames_extracted" \
-  --uploader-id "$uploader_id" --upload-date "$upload_date" --account "$account" \
-  --subtitle-error "$sel_error" \
-  --part "${part:-0}" --is-multipage "$([[ "$is_multipage" == "True" ]] && echo 1 || echo 0)" \
-  --course-page-count "${page_count:-0}"
+# Dynamic sidecars are fetched into a temporary directory, then copied only on success.
+mkdir "$tmpdir/dynamic"
+python3 - "$tmpdir/distilled.json" "$pkg/evidence/chapters${sfx}.json" <<'PY'
+import json,sys
+from pathlib import Path
+Path(sys.argv[2]).write_text(json.dumps(json.load(open(sys.argv[1])).get('chapters') or [],ensure_ascii=False,indent=2)+'\n')
+PY
+has_danmaku=0 has_comments=0
+if [[ "$(python3 "$META" capability "$platform" danmaku)" == bilibili_xml ]]; then
+  yt-dlp --ignore-config --no-playlist --skip-download --write-subs --sub-lang danmaku \
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$tmpdir/dynamic/danmaku${sfx}" "$url" > /dev/null 2>&1 || true
+  if [[ -s "$tmpdir/dynamic/danmaku${sfx}.danmaku.xml" ]]; then
+    mv "$tmpdir/dynamic/danmaku${sfx}.danmaku.xml" "$tmpdir/dynamic/danmaku${sfx}.xml"
+    cp "$tmpdir/dynamic/danmaku${sfx}.xml" "$pkg/evidence/danmaku${sfx}.xml"; has_danmaku=1
+  fi
+fi
+comments_cap=$(python3 "$META" capability "$platform" comments)
+if [[ "$comments_cap" == bilibili_api ]]; then
+  aargs=(); dxml=""
+  [[ $has_danmaku -eq 0 ]] || dxml="$tmpdir/dynamic/danmaku${sfx}.xml"
+  if [[ -n "$part" ]]; then
+    course_id=$(python3 -c 'import json,sys;print((json.load(open(sys.argv[1])).get("course") or {}).get("id") or "")' "$tmpdir/multipage.json")
+    aargs+=(--part "$part" --base-bvid "$course_id" --course-title "$title")
+  fi
+  # Empty staging directory guarantees a fresh course comment request on every execution.
+  python3 "$AUDIENCE" bili --project-root "$project_root" --url "$canonical_url" --danmaku-xml "$dxml" \
+    --out-dir "$tmpdir/dynamic" --duration "$dur" ${aargs[@]+"${aargs[@]}"} > "$tmpdir/audience.result" 2> "$tmpdir/audience.err" || true
+else
+  ea=(--extractor-args "$(printf '%s' "$extractor_key" | tr '[:upper:]' '[:lower:]'):max_comments=60,15,5,10")
+  yt-dlp --ignore-config --no-playlist --skip-download --write-comments --write-info-json "${ea[@]}" \
+    ${cookie_args[@]+"${cookie_args[@]}"} -o "$tmpdir/dynamic/comments${sfx}" "$url" >/dev/null 2>&1 || true
+  if [[ -s "$tmpdir/dynamic/comments${sfx}.info.json" ]]; then
+    python3 "$AUDIENCE" generic --info-json "$tmpdir/dynamic/comments${sfx}.info.json" \
+      --out-dir "$tmpdir/dynamic" --duration "$dur" --uploader "$uploader" --uploader-id "$uploader_id" > /dev/null 2>&1 || true
+  fi
+fi
+if [[ -s "$tmpdir/dynamic/audience.json" ]]; then has_comments=1; fi
+for fresh in "$tmpdir/dynamic"/*; do
+  [[ -f "$fresh" ]] || continue
+  cp "$fresh" "$pkg/evidence/$(basename "$fresh")"
+done
+frames_max=0 frames_extracted=0 frame_status=not_requested
+if [[ "$mode" == deep && -n "$video_file" ]]; then
+  frames_max=$(( dur > 1500 ? 20 : (dur < 600 ? 8 : dur / 75) ))
+  # Existing frame names referenced by the current standard summary remain reachable on failure.
+  mkdir -p "$pkg/evidence/frames${frames_sub}"
+  if bash "$FRAMES" "$video_file" "$tmpdir/frames" --max "$frames_max" \
+       --chapters "$pkg/evidence/chapters${sfx}.json" > "$tmpdir/frames.log"; then
+    for frame in "$tmpdir/frames"/*.jpg; do
+      [[ ! -f "$frame" ]] || cp "$frame" "$pkg/evidence/frames${frames_sub}/$(basename "$frame")"
+    done
+    frame_status=ok
+  else frame_status=failed; fi
+  frames_extracted=$(find "$pkg/evidence/frames${frames_sub}" -name '*.jpg' 2>/dev/null | wc -l | tr -d ' ')
+fi
+python3 - "$tmpdir/runtime.json" "$video_file" "$audio_file" "$sel_lang" "$sel_source" "$needs_whisper" \
+  "$has_comments" "$has_danmaku" "$frames_max" "$frames_extracted" "$mode" "$video_new" "$audio_new" "$sub_new" \
+  "$context_terms_file" "$sel_error" "$frame_status" "$account" "$tmpdir/multipage.json" "$pkg" "$sfx" <<'PY'
+import json,sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent) if '__file__' in globals() else '.')
+(out,video,audio,lang,source,nw,hc,hd,fmax,fcount,mode,vnew,anew,snew,terms,error,fs,account,mp,folder,suffix)=sys.argv[1:]
+t=json.load(open(mp))
+state={'details':{'status':'ok','refreshed':True},'chapters':{'status':'ok','refreshed':True},
+       'comments':{'status':'ok' if int(hc) else 'failed','refreshed':bool(int(hc))},
+       'danmaku':{'status':'ok' if int(hd) else 'unavailable','refreshed':bool(int(hd))},
+       'subtitle':{'status':'ok' if lang!='none' else 'missing','refreshed':bool(int(snew))}}
+if video:state['video']={'status':'ok','refreshed':bool(int(vnew))}
+if audio:state['audio']={'status':'ok','refreshed':bool(int(anew))}
+if mode=='deep':state['frames']={'status':fs,'refreshed':fs=='ok'}
+value={'files':{'video':video,'audio':audio},'subtitle':{'selected':lang,'source':source},
+       'needs_whisper':bool(int(nw)),'capabilities':{'comments':bool(int(hc)),'danmaku':bool(int(hd))},
+       'frames':{'max':int(fmax),'extracted':int(fcount)},'material_state':state,
+       'context_terms':terms,'subtitle_error':error,'account':account,'course_page_count':t.get('page_count')}
+Path(out).write_text(json.dumps(value,ensure_ascii=False))
+PY
+final_args=(prepare-meta --distilled "$tmpdir/distilled.json" --plan "$tmpdir/plan.json" --runtime "$tmpdir/runtime.json")
+[[ $force -eq 0 ]] || final_args+=(--force)
+python3 "$ARCHIVE" "${final_args[@]}"

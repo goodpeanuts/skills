@@ -1,11 +1,13 @@
 # 证据底稿 · {{TITLE}}
 
-> 本文档（`evidence/evidence.md`，与原始侧账同目录）是 summary.md 的可核验底稿：所有进入总结的辅助证据（画面、弹幕、评论）在此留痕。
+本次候选只写当前模式内容到交接 `evidence_output`，不要覆盖正式底稿。finish 按模式替换共享文件中的区块。quick省略关键帧观察；不读取或复制另一模式的观察记录。
+
+> 本文档（`evidence/evidence.md`，与原始侧账同目录）是当前模式总结（brief.md 或 summary.md）的可核验底稿：所有进入总结的辅助证据（画面、弹幕、评论）在此留痕。
 > 完整结构化数据见 `evidence/audience.json`（本目录）；机械阶段元数据见 `raw/meta.json`；
-> 素材（danmaku.xml / comments.info.json / frames/ 等）不入 Git，可用 `--force` 重采（落回原归档目录）。
+> 素材（danmaku.xml / comments.info.json / frames/ 等）不入 Git，稳定素材缺失时补齐，动态材料每次刷新，关键帧由标准模式按需重采；`--force` 仅确认覆盖总结。
 > 占位符取值来源：本表各项 ← meta.json；观众数据 ← audience.json；章节 ← chapters.json。
 > 多P课程形态：产物带 `_NN` 后缀（本底稿即 evidence_NN.md，对应 raw/meta_NN.json / summary_NN.md）；
-> 评论在课程级 audience.json（无后缀，全P共享只采一次），本P弹幕在 audience_NN.json，帧在 frames/pNN/。
+> 评论在课程级 audience.json（无后缀，全P共享，每次执行刷新），本P弹幕在 audience_NN.json，帧在 frames/pNN/。
 > summary 正文对赞助与噪音执行零痕迹剜除（严格规则 6/7），剜除记录只留存在本文档第 5 节。
 
 ## 1. 溯源
@@ -16,8 +18,8 @@
 | 链接 | {{URL}} |
 | 作者 | {{UPLOADER}}（id={{UPLOADER_ID}}） |
 | 时长 / 总结时间 | {{DURATION}} / {{TIME}} |
-| 模型 / harness | {{AGENT_MODEL}} / {{HARNESS}} |
-| 字幕来源 | {{SUBTITLE_LANG}}（subtitle_source: manual=人工或CC / auto=自动生成 / whisper=本地转写；以 meta.json 为准） |
+| 模型 / harness | {{AGENT_MODEL}} / {{HARNESS}}（本次实际值，不从另一模式或meta旧顶层字段复制） |
+| 字幕来源 | {{SUBTITLE_LANG}}（subtitle_source: manual=人工或CC / auto=自动生成 / asr或whisper=本地转写；以 meta.json 为准） |
 | 登录账号（Cookie 缓存） | {{ACCOUNT}}（meta.json `account`，无登录态时为空） |
 | 抓取方式 | pipeline_prepare.sh 机械阶段 + Agent 认知阶段 |
 
@@ -70,7 +72,7 @@
 
 | 文件 | Git | 说明 |
 |------|-----|------|
-| summary.md / evidence/evidence.md | 追踪 | 用户交付物 + 溯源底稿（本文件） |
+| brief.md / summary.md / evidence/evidence.md | 追踪 | 用户交付物 + 溯源底稿（本文件） |
 | raw/meta.json | 追踪 | 机械阶段元数据（字幕终态回写处） |
 | raw/subtitle.srt | 追踪 | 字幕源文本 |
 | evidence/audience.json | 追踪 | 弹幕+评论结构化底账 |

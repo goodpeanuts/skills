@@ -78,9 +78,9 @@ def http_json(url: str, referer: str, cookie_name: str, sessdata: str = "") -> d
         raise AudienceError(f"网络请求失败: {e} ({url})") from e
 
 
-def load_sessdata() -> str:
+def load_sessdata(project_root: str) -> str:
     login_cookie, _ = bili_cookie_cfg()
-    p = Path("cache/cookies.json")
+    p = Path(project_root).resolve() / "cache" / "cookies.json"
     try:
         return json.loads(p.read_text()).get("bilibili", {}).get("cookies", {}).get(login_cookie, "")
     except (OSError, json.JSONDecodeError):
@@ -162,12 +162,12 @@ def fetch_bili_comments(bvid: str, sessdata: str) -> tuple[dict, list]:
 
 
 def cmd_bili(url: str, danmaku_xml: str, out_dir: str, duration: float,
-             part: int, base_bvid: str, course_title: str):
+             part: int, base_bvid: str, course_title: str, project_root: str):
     m = re.search(r"(BV[0-9A-Za-z]{10})", url)
     if not m:
         raise AudienceError(f"无法从 URL 解析 BV 号: {url}")
     bvid = m.group(1)
-    sessdata = load_sessdata()
+    sessdata = load_sessdata(project_root)
     outdir = Path(out_dir)
     outdir.mkdir(parents=True, exist_ok=True)
     errors = []
@@ -310,6 +310,7 @@ def main():
     cmd = parser.add_subparsers(dest="cmd", required=True)
     p1 = cmd.add_parser("bili")
     p1.add_argument("--url", required=True)
+    p1.add_argument("--project-root", required=True)
     p1.add_argument("--danmaku-xml", default="")
     p1.add_argument("--out-dir", required=True)
     p1.add_argument("--duration", type=float, default=0)
@@ -327,7 +328,7 @@ def main():
     try:
         if args.cmd == "bili":
             cmd_bili(args.url, args.danmaku_xml, args.out_dir, args.duration,
-                     args.part, args.base_bvid, args.course_title)
+                     args.part, args.base_bvid, args.course_title, args.project_root)
         else:
             cmd_generic(args.info_json, args.out_dir, args.duration,
                         args.uploader, args.uploader_id)

@@ -178,7 +178,7 @@ check "伪装参数不命中(H6)"   ""        "$(python3 "$META" cookie-platform
 check "后缀伪装域不命中"      ""        "$(python3 "$META" cookie-platform 'https://bilibili.community/x')"
 check "前缀伪装域不命中"      ""        "$(python3 "$META" cookie-platform 'https://evilbilibili.com/x')"
 check "youtube 不命中"      ""        "$(python3 "$META" cookie-platform 'https://www.youtube.com/watch?v=x')"
-check "bilibili 失败策略"    "degrade" "$(python3 "$META" cookie-on-failure 'https://www.bilibili.com/video/BV1xx')"
+check "bilibili 失败策略"    "die" "$(python3 "$META" cookie-on-failure 'https://www.bilibili.com/video/BV1xx')"
 check "未配置平台无失败策略(空)" ""       "$(python3 "$META" cookie-on-failure 'https://www.youtube.com/watch?v=x')"
 check "bilibili 弹幕能力"    "bilibili_xml" "$(python3 "$META" capability bilibili danmaku)"
 check "bilibili 评论方式"    "bilibili_api" "$(python3 "$META" capability bilibili comments)"
@@ -428,18 +428,14 @@ else
   echo "  （跳过：无 ffmpeg）"
 fi
 
-echo "== 11. ensure_cookies: 手动提示与缓存目录参数 =="
-out=$(python3 "$SKILL/scripts/ensure_cookies.py" status --platform notconfigured 2>&1)
+echo "== 11. Cookie store 与快速/深度模式回归 =="
+out=$(python3 "$SKILL/scripts/ensure_cookies.py" status --project-root "$SBOX" --platform notconfigured 2>&1)
 check "未配置平台 status 不崩" "yes" "$(python3 -c 'import json,sys;print("yes" if json.loads(sys.argv[1]).get("configured") is False else "no")' "$out")"
-hint=$(SKILL="$SKILL" python3 <<'PYT'
-import os, sys
-sys.path.insert(0, os.path.join(os.environ["SKILL"], "scripts"))
-from ensure_cookies import MANUAL_HINT
-print(MANUAL_HINT.format(platform="p"))
-PYT
-)
-[[ -n "$hint" ]] && ok "MANUAL_HINT 可导入且非空" || bad "MANUAL_HINT 导入失败"
-check "MANUAL_HINT 声明无需手写 cookies.json" "yes" "$(python3 -c 'import sys; print("yes" if "无需手写" in sys.argv[1] else "no")' "$hint")"
+if python3 -B -m unittest discover -s "$SKILL/scripts/tests" -p '*_test.py'; then
+  ok "工作区 Cookie 管理与流水线回归"
+else
+  bad "工作区 Cookie 管理与流水线回归"
+fi
 
 # install_deps 反短路守卫: 不得用 uvx 探测代替持久安装
 grep -q 'uvx --from yt-dlp' "$SKILL/scripts/install_deps.sh" && rc=1 || rc=0

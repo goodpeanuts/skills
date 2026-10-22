@@ -64,7 +64,7 @@ stdout **末行 JSON** 是唯一契约，不要猜文件名或自行拼接 folde
    ```
    asr优先、whisper兜底，以输出 engine 决定 finish 的字幕来源参数。已有有效字幕时不执行转写，不重建辅助材料。
 3. 完整读取字幕和有效文本资料。评论只是辅助观点，不冒充视频事实；无字幕且转写无有效内容时停止内容总结，报告原因，不能靠标题/简介/评论编造。
-4. **quick** 读取 [reference/quick-prompt.md](reference/quick-prompt.md)，不读帧或标准总结。**deep** 读取 [reference/summary-prompt.md](reference/summary-prompt.md) 与 [reference/writing-style.md](reference/writing-style.md)，判体裁、读帧并按需要补帧：
+4. 两种模式先读取 [共享报告排版约定](reference/report-layout.md)，将结论、学习、行动、最小第一步与阅读建议按用途分卡，问题卡直接用题面与答案，不加 Q/A 标签；正文重点和长说明按语义组织，关键内容默认展开，不为排版补造内容。**quick** 读取 [reference/quick-prompt.md](reference/quick-prompt.md)，不读帧或标准总结。**deep** 读取 [reference/summary-prompt.md](reference/summary-prompt.md) 与 [reference/writing-style.md](reference/writing-style.md)，判体裁、读帧并按需要补帧：
    ```bash
    bash "$SKILL_DIR/scripts/extract_frames.sh" "<video_file>" "<folder>/evidence/frames[/pNN]" --at "65,130.5,208"
    ```
@@ -75,6 +75,8 @@ stdout **末行 JSON** 是唯一契约，不要猜文件名或自行拼接 folde
 6. 按 [reference/evidence-template.md](reference/evidence-template.md) 将**本模式**证据底稿写到 **`evidence_output`**；quick省略画面观察，deep包含帧观察与补帧动机。不复制另一模式的底稿，不写管理标记。`finish` 把候选底稿合并到同一个正式 `evidence/evidence[_NN].md`，仅替换当前模式区块，保留另一模式区块。
 
 ### 发布与验收（两种模式都必须）
+
+发布前执行 [共享报告排版约定](reference/report-layout.md) 的自检；分别核对标准和快速模式的实际正文，确保用途分卡、问答无重复字母标签、必要内容可见，以及引用、加粗、表格与围栏正确。不能以写入成功代替排版验收。
 
 ```bash
 bash "$SKILL_DIR/scripts/pipeline_prepare.sh" finish --folder "<folder>" \

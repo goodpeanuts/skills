@@ -411,7 +411,7 @@ def cmd_street(args) -> None:
     for k, (lt, az, el, shadow, cands) in enumerate(rows):
         if k % step and k != len(rows) - 1:
             continue
-        half = "morning" if lt.hour < 12 else "afternoon"
+        half = "morning" if az < 180 else "afternoon"      # sun east of the meridian; clock noon can be hours off solar noon
         print(f"{lt:%H:%M} {half}  sun {az:5.1f}°/{el:4.1f}°  shadow bearing {shadow:5.1f}°  → street orientation "
               + " or ".join(f"{c}°–{c + 180}°" for c in cands))
     print("Street orientation is given as 0–180° (47° means northeast–southwest). You must keep both the morning and the afternoon group, unless other evidence tells morning from afternoon.")
@@ -422,6 +422,15 @@ def _px_angle(x: float, width: float, hfov: float) -> float:
     """Horizontal angle (°, right positive) of pixel column x relative to the frame center."""
     f = (width / 2) / math.tan(math.radians(hfov) / 2)
     return math.degrees(math.atan((x - width / 2) / f))
+
+
+def _arc(angles: list[float]) -> tuple[float, float]:
+    """The shortest clockwise arc holding every angle, as (start, end) in [0, 360). Plain min/max turns a range that
+    crosses north, such as 358°–1°, into its complement 1°–358°; the arc starts after the widest gap instead."""
+    a = sorted(x % 360 for x in angles)
+    gaps = [(a[(i + 1) % len(a)] - a[i]) % 360 for i in range(len(a))]
+    i = max(range(len(a)), key=gaps.__getitem__)
+    return a[(i + 1) % len(a)], a[i]
 
 
 def cmd_compass(args) -> None:
@@ -458,7 +467,7 @@ def cmd_compass(args) -> None:
                 lt = start + timedelta(minutes=i)
                 az, el = sun_position(lat, lon, lt.astimezone(timezone.utc))
                 if (0 < el <= args.elev_max) if lo_el is None else (lo_el <= el <= hi_el):
-                    groups.setdefault("morning (sunrise side)" if lt.hour < 12 else "evening (sunset side)", []).append(az)
+                    groups.setdefault("morning (sunrise side)" if az < 180 else "evening (sunset side)", []).append(az)
         d += timedelta(days=max(1, args.step_days))
     if dropped:
         runs, s0 = [], dropped[0]
@@ -473,20 +482,22 @@ def cmd_compass(args) -> None:
     h0, h1 = (float(x) for x in args.hfov.split(":"))
     xs = [float(v) for s in (args.x or []) for v in s.split(",")]
     for name, azs in groups.items():
-        lo, hi = min(azs), max(azs)
+        lo, hi = _arc(azs)
         cands = []
         for hf in (h0, h1):
             off = _px_angle(args.sun_x, args.width, hf)
-            cands += [(lo - off) % 360, (hi - off) % 360]
+            cands += [lo - off, hi - off]
+        c0, c1 = _arc(cands)
         print(f"{name}: sun azimuth {lo:.1f}°–{hi:.1f}°; sun at frame x={args.sun_x:.0f} (offset from center "
               f"{_px_angle(args.sun_x, args.width, h0):+.1f}° to {_px_angle(args.sun_x, args.width, h1):+.1f}°)"
-              f" → camera heading about {min(cands):.0f}°–{max(cands):.0f}°")
+              f" → camera heading about {round(c0) % 360}°–{round(c1) % 360}°")
         for x in xs:
             bs = []
             for hf in (h0, h1):
                 rel = _px_angle(x, args.width, hf) - _px_angle(args.sun_x, args.width, hf)
-                bs += [(lo + rel) % 360, (hi + rel) % 360]
-            print(f"    object at x={x:.0f}: bearing about {min(bs):.0f}°–{max(bs):.0f}° (relative to the sun "
+                bs += [lo + rel, hi + rel]
+            b0, b1 = _arc(bs)
+            print(f"    object at x={x:.0f}: bearing about {round(b0) % 360}°–{round(b1) % 360}° (relative to the sun "
                   f"{_px_angle(x, args.width, h0) - _px_angle(args.sun_x, args.width, h0):+.1f}° to "
                   f"{_px_angle(x, args.width, h1) - _px_angle(args.sun_x, args.width, h1):+.1f}°)")
     print("When a range crosses north (e.g. 350°–10°), read it clockwise. If the field of view is uncertain, widen --hfov; when the sunrise and sunset groups can't be told apart, you must build top-down templates for both headings.")

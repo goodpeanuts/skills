@@ -124,9 +124,9 @@ def plan(args):
                 continue
             owned = False
             for p in (candidate / 'raw').glob('meta*.json'):
-                m = read(p)
-                owned |= m.get('platform') == d['platform'] and (m.get('id') == d['id'] or
-                         (part and m.get('is_multipage') and (m.get('collection') or {}).get('id') == (mp.get('course') or {}).get('id')))
+                m = read(p) or {}
+                owned = owned or bool(m.get('platform') == d['platform'] and (m.get('id') == d['id'] or
+                         (part and m.get('is_multipage') and (m.get('collection') or {}).get('id') == (mp.get('course') or {}).get('id'))))
             if owned:
                 folder = str(candidate)
                 break
